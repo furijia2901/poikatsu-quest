@@ -37,7 +37,37 @@
     finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
    }catch(e){status.textContent='⚠️ '+e.message;}
   });
-  box.append(title,note,btn,status);panel.appendChild(box);
+  const inspectTitle=document.createElement('p');inspectTitle.textContent='🔍 バックアップファイルを検査（復元しない）';
+  const file=document.createElement('input');file.type='file';file.accept='.json,application/json';
+  file.setAttribute('aria-label','検査するバックアップJSONファイル');
+  const inspectStatus=document.createElement('pre');inspectStatus.setAttribute('aria-live','polite');
+  inspectStatus.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px';
+  file.addEventListener('change',async function(){
+   inspectStatus.textContent='';
+   const selected=file.files&&file.files[0];if(!selected)return;
+   if(selected.size>5*1024*1024){inspectStatus.textContent='⚠️ 5MBを超えるファイルは検査できません';return;}
+   try{
+    const parsed=JSON.parse(await selected.text());
+    if(!validateBackup(parsed))throw Error('POIKATSU QUESTのバックアップ形式ではありません');
+    if(!Number.isFinite(Date.parse(parsed.createdAt)))throw Error('保存日時が不正です');
+    const data=parsed.saveData;
+    const outdoor=data.outdoorQuest;
+    const sessions=outdoor?.completedSessions;
+    if(sessions!==undefined&&!Array.isArray(sessions))throw Error('散歩クリア履歴の形式が不正です');
+    const duplicate=sessions?new Set(sessions.map(x=>String(x?.id??''))).size!==sessions.length:false;
+    const missingId=sessions?sessions.some(x=>!x||!x.id):false;
+    const issues=[];
+    if(duplicate)issues.push('クリア履歴に重複IDがあります');
+    if(missingId)issues.push('クリア履歴にID欠落があります');
+    inspectStatus.textContent=(issues.length?'⚠️ 要確認':'🟢 形式チェックPASS')+
+     '\\n保存日時：'+parsed.createdAt+
+     '\\n散歩クリア履歴：'+(sessions?sessions.length:'データなし')+
+     '\\n'+(issues.length?issues.join('\\n'):'基本形式に問題は見つかりませんでした')+
+     '\\n※内容の完全性や復元可能性を保証するものではありません。セーブデータは変更していません。';
+   }catch(e){inspectStatus.textContent='❌ 検査失敗：'+e.message;}
+   finally{file.value='';}
+  });
+  box.append(title,note,btn,status,inspectTitle,file,inspectStatus);panel.appendChild(box);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
