@@ -2304,4 +2304,18 @@ cloudBoot();
 #outdoor60 .oq-reveal{animation:oqArrival .45s ease both}
 @media(max-width:480px){#outdoor60>section{padding:14px}#outdoor60 .oq-card{padding:15px}#outdoor60 .oq-stat{font-size:1rem;padding:13px 10px}#outdoor60 .oq-card button{margin:4px 3px}}
 @media(prefers-reduced-motion:reduce){#outdoor60 *,#outdoor60 *:before,#outdoor60 *:after{animation:none!important;transition:none!important}}
+</style><style id="oq-reveal-effects">
+#outdoor60 .oq-card{isolation:isolate}
+#outdoor60 .oq-reveal-overlay{position:absolute;inset:0;z-index:5;pointer-events:none;overflow:hidden;border-radius:inherit;display:grid;place-items:center;--reveal:#79e4c1;background:radial-gradient(circle at 50% 48%,color-mix(in srgb,var(--reveal) 32%,transparent),transparent 68%);animation:oqRevealOut 1.65s ease-out both}
+#outdoor60 .oq-reveal-tier-1{--reveal:#74d7aa}
+#outdoor60 .oq-reveal-tier-2{--reveal:#74bfff}
+#outdoor60 .oq-reveal-tier-3{--reveal:#c59bff}
+#outdoor60 .oq-reveal-tier-4{--reveal:#ffdd85}
+#outdoor60 .oq-reveal-tier-5{--reveal:#ff929b}
+#outdoor60 .oq-reveal-core{position:relative;z-index:2;font-size:clamp(22px,8vw,38px);letter-spacing:4px;color:var(--reveal);text-shadow:0 0 16px var(--reveal),0 0 30px var(--reveal);animation:oqCore 1.35s ease-out both;white-space:nowrap}
+#outdoor60 .oq-reveal-star{position:absolute;left:50%;top:50%;height:6px;width:6px;background:var(--reveal);border-radius:50%;box-shadow:0 0 9px var(--reveal);animation:oqStar 1.3s ease-out var(--delay) both;transform:rotate(var(--angle))}
+@keyframes oqStar{0%{opacity:0;transform:rotate(var(--angle)) translateX(0) scale(.2)}35%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateX(140px) scale(.15)}}
+@keyframes oqCore{0%{opacity:0;transform:scale(.35) rotate(-8deg)}38%{opacity:1;transform:scale(1.2)}75%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.04)}}
+@keyframes oqRevealOut{0%{opacity:0}15%{opacity:1}75%{opacity:1}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){#outdoor60 .oq-reveal-overlay{display:none!important}}
 </style><script src="./outdoor60.js"></script></html>
