@@ -2131,6 +2131,9 @@ async function cloudSafeOutdoorMerge(){
   if(lo.activeSession)lo.activeSession={...lo.activeSession,memo:''};
   if(ro.activeSession)ro.activeSession={...ro.activeSession,memo:''};
   delete lo.lastUpdated;delete ro.lastUpdated;
+  // Older cloud saves omit this optional cosmetic field; absent and null are equivalent.
+  if(lo.equippedCosmetic==null)delete lo.equippedCosmetic;
+  if(ro.equippedCosmetic==null)delete ro.equippedCosmetic;
   if(cloudStableJson(lo)!==cloudStableJson(ro))throw Error('散歩の進捗や報酬に差があります。自動統合せず停止しました');
   const merged={...local,outdoorQuest:{...local.outdoorQuest,activeSession:{...la,memo:lm||rm},settings:rSettings||lSettings,lastUpdated:new Date().toISOString()}};
   if(!confirm('安全統合の条件を確認しました。メモは空でない方を残し、設定はクラウド側を採用します。既存の履歴・報酬は変更しません。クラウドとこの端末に統合版を保存しますか？'))return;
