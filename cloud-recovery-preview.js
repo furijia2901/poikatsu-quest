@@ -22,11 +22,29 @@
   const allFields=new Set([...Object.keys(local||{}),...Object.keys(remote||{})]);
   const other=[...allFields].filter(k=>k!=='outdoorQuest'&&JSON.stringify(local?.[k])!==JSON.stringify(remote?.[k]));
   if(other.length)risks.push('通常セーブにも差分 '+other.length+'項目');
-  const same=JSON.stringify(local)===JSON.stringify(remote);
+  const stable=x=>{if(Array.isArray(x))return x.map(stable);if(x&&typeof x==='object')return Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])]));return x};
+  const same=JSON.stringify(stable(local))===JSON.stringify(stable(remote));
   return {risks,localOnly:localOnly.length,remoteOnly:remoteOnly.length,otherCount:other.length,
     protectedCount:new Set([...li,...ri]).size,
-    result:same?'PASS':risks.length?'WARNING':'WARNING',
+    result:same?'PASS':(!l||!r||localOnly.length||remoteOnly.length)?'FAIL':'WARNING',
     recommendation:same?'両方一致。復旧操作は不要です。':'自動統合せず、両方のJSONバックアップを取って差分を確認してください。EXP・メダルは単純加算しないでください。'};
+ }
+ function selfTest(){
+  const el=document.getElementById('pq-recovery-preview-result');if(!el)return;
+  const base={level:2,quest:{id:'q'},outdoorQuest:{completedSessions:[{id:'a'}],outdoorXp:10,outdoorMedals:2,activeSession:null}};
+  const copy=()=>clone(base);
+  const scenarios=[
+   ['一致',copy(),copy(),'PASS'],
+   ['キー順序のみ異なる',{quest:{id:'q'},outdoorQuest:clone(base.outdoorQuest),level:2},copy(),'PASS'],
+   ['端末側に履歴が追加',(()=>{const x=copy();x.outdoorQuest.completedSessions.push({id:'b'});return x})(),copy(),'FAIL'],
+   ['クラウド側に履歴が追加',copy(),(()=>{const x=copy();x.outdoorQuest.completedSessions.push({id:'b'});return x})(),'FAIL'],
+   ['EXP差分',copy(),(()=>{const x=copy();x.outdoorQuest.outdoorXp+=20;return x})(),'WARNING'],
+   ['通常セーブ差分',copy(),(()=>{const x=copy();x.level=3;return x})(),'WARNING'],
+   ['散歩データ欠落',copy(),(()=>{const x=copy();delete x.outdoorQuest;return x})(),'FAIL']
+  ];
+  const results=scenarios.map(([name,l,r,expected])=>({name,expected,actual:compare(l,r).result}));
+  const failures=results.filter(x=>x.actual!==x.expected);
+  el.textContent=(failures.length?'🔴 FAIL':'🟢 PASS')+'：模擬診断 '+(results.length-failures.length)+'/'+results.length+' 件成功\\n'+results.map(x=>(x.actual===x.expected?'✓ ':'✗ ')+x.name+'：'+x.actual).join('\\n')+'\\n※模擬データのみ。端末・クラウドの保存内容は変更していません。';
  }
  async function run(){
   const el=document.getElementById('pq-recovery-preview-result');if(!el)return;
@@ -48,7 +66,8 @@
   const desc=document.createElement('p');desc.className='cloud-note';desc.textContent='端末とクラウドの差分を読み取り専用で比較します。復元・統合・上書きは実行しません。';
   const btn=document.createElement('button');btn.type='button';btn.textContent='🔎 競合・復旧を診断';btn.addEventListener('click',run);
   const result=document.createElement('pre');result.id='pq-recovery-preview-result';result.setAttribute('aria-live','polite');result.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px';
-  box.append(title,desc,btn,result);panel.appendChild(box);
+  const test=document.createElement('button');test.type='button';test.textContent='🧪 模擬データで7件テスト';test.addEventListener('click',selfTest);
+  box.append(title,desc,test,btn,result);panel.appendChild(box);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
