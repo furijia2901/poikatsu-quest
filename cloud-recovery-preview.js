@@ -44,7 +44,7 @@
   ];
   const results=scenarios.map(([name,l,r,expected])=>({name,expected,actual:compare(l,r).result}));
   const failures=results.filter(x=>x.actual!==x.expected);
-  el.textContent=(failures.length?'🔴 FAIL':'🟢 PASS')+'：模擬診断 '+(results.length-failures.length)+'/'+results.length+' 件成功\\n'+results.map(x=>(x.actual===x.expected?'✓ ':'✗ ')+x.name+'：'+x.actual).join('\\n')+'\\n※模擬データのみ。端末・クラウドの保存内容は変更していません。';
+  el.textContent=(failures.length?'🔴 FAIL':'🟢 PASS')+'：模擬診断 '+(results.length-failures.length)+'/'+results.length+' 件成功\n'+results.map(x=>(x.actual===x.expected?'✓ ':'✗ ')+x.name+'：'+x.actual).join('\n')+'\n※模擬データのみ。端末・クラウドの保存内容は変更していません。';
  }
  async function run(){
   const el=document.getElementById('pq-recovery-preview-result');if(!el)return;
