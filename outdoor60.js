@@ -84,7 +84,29 @@ function oqRewardPreview(){
  const newly=sandbox.unlockedAchievements.filter(x=>!beforeAchievements.has(x)).map(x=>String(x));
  oqRewardCelebration({preview:true,name:a.mission.name,xp:reward[0],medals:reward[1],levelUp:sandbox.outdoorLevel>beforeLevel,level:sandbox.outdoorLevel,achievements:newly});
 }
-function oqComplete(){const o=oq(),a=o.activeSession;if(!a||a.status!=='active')return;const m=a.mission;if(o.completedSessions.some(x=>x.id===a.id))return;const progress=m.type==='time'?oqElapsed(a)/60:Number(a.progress)||0;if(progress<m.target&&!confirm('記録上は未達成です。実際に条件を達成したことを確認した？'))return;if(o.settings.confirm&&!confirm('安全な場所で達成を確認した？冒険から帰還して報酬を受け取るよ'))return;const now=new Date().toISOString(),[xp,medals]=OQ_REWARDS[m.difficulty-1];a.status='completed';a.completedAt=now;if(a.timerStartedAt){a.elapsedMs=(a.elapsedMs||0)+Math.max(0,Date.now()-a.timerStartedAt);a.timerStartedAt=null;}a.reward={xp,medals};o.completedSessions.push({...a});o.activeSession=null;o.outdoorXp+=xp;o.outdoorMedals+=medals;o.outdoorLevel=oqLevel(o.outdoorXp);oqAchievements(o);oqSave();oqFx();alert('🎉 冒険から帰還！ 散歩EXP +'+xp+' / メダル +'+medals)}
+function oqComplete(){
+ const o=oq(),a=o.activeSession;
+ if(!a||a.status!=='active'||o.completedSessions.some(x=>x.id===a.id))return;
+ const m=a.mission,progress=m.type==='time'?oqElapsed(a)/60:Number(a.progress)||0;
+ if(progress<m.target&&!confirm('記録上は未達成です。実際に条件を達成したことを確認した？'))return;
+ if(o.settings.confirm&&!confirm('安全な場所で達成を確認した？冒険から帰還して報酬を受け取るよ'))return;
+ // Recheck after confirmation: another UI action may have changed the active quest.
+ if(o.activeSession!==a||a.status!=='active'||o.completedSessions.some(x=>x.id===a.id))return;
+ const reward=OQ_REWARDS[m.difficulty-1];if(!reward)return alert('報酬設定が不正です');
+ const [xp,medals]=reward,oldLevel=o.outdoorLevel,oldAchievements=new Set(o.unlockedAchievements);
+ const now=new Date().toISOString();
+ a.status='completed';a.completedAt=now;
+ if(a.timerStartedAt){a.elapsedMs=(a.elapsedMs||0)+Math.max(0,Date.now()-a.timerStartedAt);a.timerStartedAt=null}
+ a.reward={xp,medals};
+ o.completedSessions.push({...a});o.activeSession=null;
+ o.outdoorXp+=xp;o.outdoorMedals+=medals;o.outdoorLevel=oqLevel(o.outdoorXp);
+ oqAchievements(o);
+ const newly=o.unlockedAchievements.filter(id=>!oldAchievements.has(id));
+ // Persist once before displaying the non-persistent celebration.
+ oqSave();
+ oqRewardCelebration({preview:false,name:m.name,xp,medals,levelUp:o.outdoorLevel>oldLevel,level:o.outdoorLevel,achievements:newly});
+}
+
 function oqShop(id){const o=oq(),p=OQ_SHOP.find(x=>x[0]===id);if(!p||o.purchasedCosmetics.includes(id)||o.outdoorMedals<p[2])return;o.outdoorMedals-=p[2];o.purchasedCosmetics.push(id);o.equippedCosmetic=id;oqSave()}
 function oqEquip(id){const o=oq();if(!o.purchasedCosmetics.includes(id))return;o.equippedCosmetic=o.equippedCosmetic===id?null:id;oqSave()}
 function oqLegacy(){const o=oq();if(o.legacyImported)return;if(!confirm('旧チャット版でクリアした2回を記録する？（EXP・メダルの付与なし）'))return;o.legacyClearCount=2;o.legacyImported=true;oqSave()}
