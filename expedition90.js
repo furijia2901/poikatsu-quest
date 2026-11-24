@@ -95,6 +95,61 @@
    return {id:route.id,region:v.name,weather:v.weather,story:v.story,branches,selected,event:{name:event[0],description:event[1]},unlocked:route.steps[0].cleared,difficulty:diff};
   });
  }
+
+ // Phase 3: deterministic, isolated battle state. No reward or save writes.
+ const ELEMENTS={fire:'炎',water:'水',wind:'風'};
+ const ADVANTAGE={fire:'wind',wind:'water',water:'fire'};
+ const FOES={
+  market:{normal:{name:'黄金の番兵',icon:'⚔️',element:'fire',hp:78,atk:10,skill:'灼熱の斬撃'},boss:{name:'金煌の機竜',icon:'🐲',element:'fire',hp:136,atk:14,skill:'黄金崩壊砲'}},
+  trail:{normal:{name:'星風の魔狼',icon:'🐺',element:'wind',hp:75,atk:11,skill:'疾風の牙'},boss:{name:'蒼樹の守護獣',icon:'🦌',element:'wind',hp:145,atk:13,skill:'樹海の大旋風'}},
+  citadel:{normal:{name:'月影の魔導士',icon:'🔮',element:'water',hp:82,atk:10,skill:'月影の奔流'},boss:{name:'星海の幻竜',icon:'🐉',element:'water',hp:150,atk:14,skill:'星海の終焉'}}
+ };
+ const BATTLE_SCALE={easy:0.85,normal:1,hard:1.2};
+ const ACTIONS={attack:'通常攻撃',skill:'星脈斬',guard:'防御',heal:'星灯の薬'};
+ function battleEligible(d,map,routeId,kind){
+  const route=d.routes.find(r=>r.id===routeId),m=map.find(r=>r.id===routeId);
+  if(!route||!m||!['normal','boss'].includes(kind))return false;
+  return kind==='boss'?route.cleared===route.steps.length&&m.selected.ready:m.unlocked;
+ }
+ function beginBattle(d,map,routeId,kind,element='fire'){
+  if(!battleEligible(d,map,routeId,kind)||!Object.hasOwn(ELEMENTS,element))return null;
+  const m=map.find(r=>r.id===routeId),f=FOES[routeId][kind],scale=BATTLE_SCALE[m.difficulty];
+  const maxHp=Math.round(f.hp*scale);
+  return {version:1,week:d.period.start,routeId,branchId:m.selected.id,kind,difficulty:m.difficulty,
+   player:{element,hp:120,maxHp:120,mp:2,maxMp:4,potions:2},
+   enemy:{...f,hp:maxHp,maxHp,atk:Math.round(f.atk*scale)},turn:1,status:'active',log:['遠征戦闘開始！']};
+ }
+ function enemyIntent(b){
+  const special=b.turn%3===0;
+  return {special,name:special?b.enemy.skill:'通常攻撃',damage:Math.round(b.enemy.atk*(special?2.15:1))};
+ }
+ function affinity(a,b){return ADVANTAGE[a]===b?1.3:ADVANTAGE[b]===a?0.8:1;}
+ function canAct(b,action){
+  if(!b||b.status!=='active'||!Object.hasOwn(ACTIONS,action))return false;
+  return action==='skill'?b.player.mp>=2:action==='heal'?b.player.potions>0&&b.player.hp<b.player.maxHp:true;
+ }
+ function battleStep(b,action){
+  if(!canAct(b,action))return b;
+  const p={...b.player},e={...b.enemy},log=[...b.log],intent=enemyIntent(b);
+  const note=t=>log.push('T'+b.turn+' '+t);
+  let guarding=false;
+  if(action==='attack'||action==='skill'){
+   const damage=Math.round((action==='skill'?36:21)*affinity(p.element,e.element));
+   e.hp=Math.max(0,e.hp-damage);
+   p.mp=action==='skill'?p.mp-2:Math.min(p.maxMp,p.mp+1);
+   note(ACTIONS[action]+'：'+damage+'ダメージ');
+  }else if(action==='guard'){
+   guarding=true;p.mp=Math.min(p.maxMp,p.mp+2);note('防御：被ダメージを70%軽減');
+  }else{
+   p.potions--;const restored=Math.min(38,p.maxHp-p.hp);p.hp+=restored;note('星灯の薬：HP '+restored+'回復');
+  }
+  if(e.hp===0){note('勝利！');return {...b,player:p,enemy:e,status:'won',log:log.slice(-30)};}
+  const damage=Math.max(1,Math.round(intent.damage*affinity(e.element,p.element)*(guarding?0.3:1)));
+  p.hp=Math.max(0,p.hp-damage);note(intent.name+'：'+damage+'ダメージを受けた');
+  const status=p.hp===0?'lost':b.turn>=30?'timeout':'active';
+  if(status!=='active')note(status==='lost'?'敗北…':'制限ターン終了');
+  return {...b,player:p,enemy:e,turn:status==='active'?b.turn+1:b.turn,status,log:log.slice(-30)};
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -111,11 +166,11 @@
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy';
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null;
   function paint(){
    if(!panel.classList.contains('active'))return;
    const d=derive(typeof s==='undefined'?{}:s);
-   if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';}
+   if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';battle=null;}
    const map=weeklyMap(d,choices,difficulty);
    panel.replaceChildren();
    const hero=add(panel,'section','','pq9-hero');
@@ -132,6 +187,39 @@
    const select=document.createElement('select');select.setAttribute('aria-label','探索難易度');
    for(const [id,def] of Object.entries(DIFFICULTIES)){const option=document.createElement('option');option.value=id;option.textContent=def.label;select.append(option);}
    select.value=difficulty;select.onchange=()=>{difficulty=select.value;paint();panel.querySelector('select')?.focus();};difficultyLabel.append(select);
+   const battleBox=add(panel,'section','','pq9-route');
+   add(battleBox,'h3','⚔️ 遠征バトル');
+   if(!battle){
+    add(battleBox,'p','最初の地点を攻略すると番兵戦、全3地点と分岐条件を達成するとボス戦が解放。専用ステータスで挑戦できます。','pq9-note');
+    const elLabel=add(battleBox,'label','使用属性　');
+    const elSelect=document.createElement('select');elSelect.setAttribute('aria-label','戦闘属性');
+    for(const [id,name] of Object.entries(ELEMENTS)){const opt=document.createElement('option');opt.value=id;opt.textContent=name;elSelect.append(opt);}
+    elSelect.value=element;elSelect.onchange=()=>{element=elSelect.value;};elLabel.append(elSelect);
+    add(battleBox,'p','相性：炎 → 風 → 水 → 炎（有利30%増／不利20%減）','pq9-note');
+   }else{
+    add(battleBox,'p',battle.enemy.icon+' '+battle.enemy.name+' ／ '+DIFFICULTIES[battle.difficulty].label+' ／ '+ELEMENTS[battle.enemy.element]);
+    add(battleBox,'strong','TURN '+battle.turn+' / 30');
+    add(battleBox,'p','自分 HP '+battle.player.hp+'/'+battle.player.maxHp+' ｜ '+ELEMENTS[battle.player.element]+' ｜ MP '+battle.player.mp+'/'+battle.player.maxMp+' ｜ 薬 '+battle.player.potions);
+    bar(battleBox,battle.player.hp,battle.player.maxHp,'プレイヤーHP');
+    add(battleBox,'p','敵 HP '+battle.enemy.hp+'/'+battle.enemy.maxHp);
+    bar(battleBox,battle.enemy.hp,battle.enemy.maxHp,'敵HP');
+    if(battle.status==='active'){
+     const intent=enemyIntent(battle);
+     const expected=Math.max(1,Math.round(intent.damage*affinity(battle.enemy.element,battle.player.element)));
+     add(battleBox,'strong',(intent.special?'⚠️ 大技予告：':'次の敵行動：')+intent.name+' ／ 予想ダメージ '+expected);
+     const actions=add(battleBox,'div','','pq9-label');
+     for(const [id,label] of Object.entries(ACTIONS)){
+      const action=add(actions,'button',label+({attack:'（MP+1）',skill:'（MP2）',guard:'（MP+2）',heal:'（HP38）'}[id]));
+      action.type='button';action.disabled=!canAct(battle,id);action.dataset.action=id;
+      const expectedBattle=battle;
+      action.onclick=()=>{if(battle!==expectedBattle)return;battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
+     }
+    }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'　※報酬付与なし');
+    const log=add(battleBox,'div','','pq9-note');log.setAttribute('aria-live','polite');
+    for(const line of battle.log.slice(-6))add(log,'p',line);
+    const exit=add(battleBox,'button',battle.status==='active'?'戦闘を中断':'戦闘結果を閉じる');exit.type='button';
+    exit.onclick=()=>{if(battle.status==='active'&&!confirm('戦闘を中断しますか？'))return;battle=null;paint();};
+   }
    const grid=add(panel,'div','','pq9-grid');
    for(const route of d.routes){
     const card=add(grid,'section','','pq9-route');
@@ -154,6 +242,19 @@
     add(branchBox,'p',m.unlocked?'✨ '+m.event.name:'🔒 遭遇イベント');
     if(m.unlocked)add(branchBox,'p',m.event.description,'pq9-note');
     add(branchBox,'p',(sel.ready?'🔓 ':'🔒 ')+sel.chest+(sel.ready?'（発見・報酬未実装）':'（条件達成で発見）'),'pq9-note');
+    const fights=add(card,'div','','pq9-step');
+    for(const kind of ['normal','boss']){
+     const unlocked=battleEligible(d,map,route.id,kind),foe=FOES[route.id][kind];
+     const fight=add(fights,'button',(unlocked?'⚔️ ':'🔒 ')+foe.name+(kind==='boss'?'（ボス）':''));
+     fight.type='button';fight.disabled=!!battle||!unlocked;
+     fight.onclick=()=>{
+      if(battle)return;
+      const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
+      if(fresh.period.start!==selectedWeek){paint();return;}
+      battle=beginBattle(fresh,freshMap,route.id,kind,element);
+      paint();if(battle)panel.querySelector('.pq9-hero')?.nextElementSibling?.nextElementSibling?.scrollIntoView({block:'start'});
+     };
+    }
     for(const step of route.steps){
      const item=add(card,'div','','pq9-step'+(!step.unlocked?' pq9-locked':''));
      const label=add(item,'div','','pq9-label');
@@ -164,13 +265,13 @@
      bar(item,step.value,step.target,step.name);
     }
    }
-   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみで、追加報酬やセーブ変更はありません。','pq9-note');
+   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。追加報酬やセーブ変更はありません。','pq9-note');
    const refresh=add(panel,'button','↻ 進捗を更新');refresh.type='button';refresh.onclick=paint;
   }
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
