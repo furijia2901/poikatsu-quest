@@ -173,6 +173,48 @@ const server=http.createServer((req,res)=>{
    await page.locator('#home.active').waitFor();
    console.log('PASS all-content menu, search, category, recent history, back and home '+viewport.width+'px');
 
+   const profileEditor=page.locator('#pq105-profile-editor');
+   const profileBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await lobby.getByRole('button',{name:'🧪 プロフィール試験',exact:true}).click();
+   await profileEditor.waitFor({state:'visible'});
+   await profileEditor.getByRole('textbox',{name:/プレイヤー名/}).fill('テスト冒険者');
+   await profileEditor.locator('[data-pq105-icon="dragon"]').click();
+   await profileEditor.getByLabel('プロフィール用称号').selectOption('月夜の案内人');
+   await profileEditor.getByLabel('ロビーのテーマ').selectOption('gold');
+   assert.equal(await profileEditor.locator('.pq105-profile-preview').getAttribute('data-theme'),'gold');
+   assert.match(await profileEditor.locator('.pq105-profile-preview').innerText(),/テスト冒険者/);
+   await profileEditor.getByRole('button',{name:'試験保存',exact:true}).click();
+   assert.match(await profileEditor.getByRole('status').innerText(),/本番変更なし/);
+   await profileEditor.getByRole('button',{name:'初期値に戻す',exact:true}).click();
+   assert.equal(await profileEditor.locator('.pq105-profile-preview').getAttribute('data-theme'),'astral');
+   await profileEditor.getByRole('button',{name:'閉じる（未保存の変更を破棄）',exact:true}).click();
+   await profileEditor.waitFor({state:'hidden'});
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),profileBefore);
+   await lobby.getByRole('button',{name:'🎨 プロフィール編集',exact:true}).click();
+   await profileEditor.getByRole('textbox',{name:/プレイヤー名/}).fill('ロビー確認用');
+   await profileEditor.locator('[data-pq105-icon="fox"]').click();
+   await profileEditor.getByLabel('プロフィール用称号').selectOption('星灯の旅人');
+   await profileEditor.getByLabel('ロビーのテーマ').selectOption('forest');
+   await profileEditor.getByRole('button',{name:'保存する',exact:true}).click();
+   assert.equal(await lobby.getAttribute('data-profile-theme'),'forest');
+   assert.equal(await lobby.locator('.pq105-custom-name').innerText(),'ロビー確認用');
+   assert.equal(await lobby.locator('.pq105-emblem').innerText(),'🦊');
+   const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('pq105-profile-device-v1')));
+   assert.equal(saved.name,'ロビー確認用');assert.equal(saved.theme,'forest');
+   assert.equal(await page.evaluate(()=>JSON.stringify(s)),profileBefore.state);
+   await profileEditor.getByRole('button',{name:'閉じる（未保存の変更を破棄）',exact:true}).click();
+   await profileEditor.waitFor({state:'hidden'});
+   await lobby.getByRole('button',{name:'🎨 プロフィール編集',exact:true}).click();
+   assert.equal(await profileEditor.getByRole('textbox',{name:/プレイヤー名/}).inputValue(),'ロビー確認用');
+   await profileEditor.getByRole('button',{name:'初期値に戻す',exact:true}).click();
+   await profileEditor.getByRole('button',{name:'保存する',exact:true}).click();
+   await profileEditor.getByRole('button',{name:'閉じる（未保存の変更を破棄）',exact:true}).click();
+   await profileEditor.waitFor({state:'hidden'});
+   await page.evaluate(()=>localStorage.removeItem('pq105-profile-device-v1'));
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),profileBefore);
+   console.log('PASS cosmetic profile preview, test-mode isolation, explicit save, reset and original game preservation '+viewport.width+'px');
+
+
 
 
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),navBefore,'navigation must not change game or storage');
