@@ -271,6 +271,40 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),inboxBefore);
    console.log('PASS news filters/read, native login route, isolated single and bulk reward claims, reset '+viewport.width+'px');
 
+   const audio=page.locator('#pq105-audio');
+   const audioBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   assert.equal(await page.locator('html').getAttribute('data-pq105-motion'),'on');
+   await lobby.getByRole('button',{name:'🧪 サウンド試験',exact:true}).click();
+   await audio.waitFor({state:'visible'});
+   assert.equal(await audio.getByLabel('サウンドを有効にする').isChecked(),true);
+   await audio.getByLabel('BGM音量',{exact:true}).fill('15');
+   await audio.getByLabel('効果音音量',{exact:true}).fill('25');
+   await audio.getByRole('button',{name:'タイトルBGM',exact:true}).click();
+   await audio.getByRole('status').filter({hasText:'試聴中：タイトル'}).waitFor();
+   await audio.getByRole('button',{name:'試聴停止',exact:true}).click();
+   await audio.getByRole('button',{name:'報酬音',exact:true}).click();
+   await audio.getByRole('status').filter({hasText:'効果音を試聴しました'}).waitFor();
+   await audio.getByRole('button',{name:'試験保存',exact:true}).click();
+   assert.match(await audio.getByRole('status').innerText(),/本番変更なし/);
+   await audio.getByRole('button',{name:'閉じる',exact:true}).click();
+   await audio.waitFor({state:'hidden'});
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),audioBefore);
+   await lobby.getByRole('button',{name:'🔊 サウンド設定',exact:true}).click();
+   assert.equal(await audio.getByLabel('サウンドを有効にする').isChecked(),false);
+   await audio.getByLabel('画面切替アニメーション').uncheck();
+   await audio.getByRole('button',{name:'保存する',exact:true}).click();
+   assert.equal(await page.locator('html').getAttribute('data-pq105-motion'),'off');
+   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pq105-audio-device-v1')).enabled),false);
+   await audio.getByRole('button',{name:'初期値に戻す',exact:true}).click();
+   await audio.getByRole('button',{name:'保存する',exact:true}).click();
+   assert.equal(await page.locator('html').getAttribute('data-pq105-motion'),'on');
+   await audio.getByRole('button',{name:'閉じる',exact:true}).click();
+   await audio.waitFor({state:'hidden'});
+   await page.evaluate(()=>localStorage.removeItem('pq105-audio-device-v1'));
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),audioBefore);
+   console.log('PASS optional audio previews, volume controls, motion preferences, reset and save isolation '+viewport.width+'px');
+
+
 
 
 
