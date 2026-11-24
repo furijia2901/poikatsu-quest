@@ -241,6 +241,37 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),collectionBefore);
    console.log('PASS collection center, 24 routes, search, direct navigation and isolated fixture '+viewport.width+'px');
 
+   const inbox=page.locator('#pq105-inbox');
+   const inboxBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await lobby.getByRole('button',{name:/^📢 お知らせ/}).click();
+   assert.equal(await inbox.locator('[data-pq105-news-id]').count(),4);
+   await inbox.getByRole('button',{name:'イベント',exact:true}).click();
+   assert.equal(await inbox.locator('[data-pq105-news-id]').count(),1);
+   await inbox.getByRole('button',{name:'既読にする',exact:true}).click();
+   assert.equal(await inbox.getByRole('button',{name:'既読',exact:true}).isDisabled(),true);
+   await inbox.getByRole('button',{name:'閉じる',exact:true}).click();
+   await lobby.getByRole('button',{name:/^🎁 プレゼント/}).click();
+   assert.equal(await inbox.locator('[data-pq105-gift-id]').count(),6);
+   await inbox.locator('[data-pq105-gift-id="daily"]').getByRole('button',{name:'受取・詳細画面へ'}).click();
+   await page.locator('#loginBtn').waitFor({state:'visible'});
+   await gotoTab('home');
+   await lobby.getByRole('button',{name:'🧪 報酬試験',exact:true}).click();
+   assert.equal(await inbox.locator('[data-status="ready"]').count(),2);
+   assert.equal(await inbox.locator('[data-pq105-gift-id="expired"] button').isDisabled(),true);
+   assert.equal(await inbox.locator('[data-pq105-gift-id="locked"] button').isDisabled(),true);
+   await inbox.locator('[data-pq105-gift-id="welcome"] button').click();
+   assert.match(await inbox.locator('#pq105-test-gift-balance').innerText(),/100G/);
+   assert.equal(await inbox.locator('[data-pq105-gift-id="welcome"] button').isDisabled(),true);
+   await inbox.getByRole('button',{name:'試験一括受取',exact:true}).click();
+   assert.match(await inbox.locator('#pq105-test-gift-balance').innerText(),/140G/);
+   assert.equal(await inbox.getByRole('button',{name:'試験一括受取',exact:true}).isDisabled(),true);
+   await inbox.getByRole('button',{name:'試験初期化',exact:true}).click();
+   assert.match(await inbox.locator('#pq105-test-gift-balance').innerText(),/0G/);
+   await inbox.getByRole('button',{name:'閉じる',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),inboxBefore);
+   console.log('PASS news filters/read, native login route, isolated single and bulk reward claims, reset '+viewport.width+'px');
+
+
 
 
 
@@ -286,6 +317,7 @@ const server=http.createServer((req,res)=>{
    const panel=page.locator('#expedition90');
    assert.equal(await panel.isVisible(),true);
    assert.equal(await panel.locator('#pq9-shop').isVisible(),false);
+   await panel.locator('[data-pq9-view="map"]').click();
    const overview=panel.locator('#pq10-map-overview');
    assert.equal(await overview.locator('.pq10-map-tile').count(),4);
    assert.equal(await overview.locator('.pq10-map-node').count(),9);
