@@ -223,6 +223,47 @@
   const [version,week,route,kind,...extra]=id.split(':');
   return version==='v1'&&!extra.length&&receiptId(week,route,kind)===id?REWARD_VALUES[kind]:null;
  }
+
+ // Immutable chest v1 drops: the receipt is the single source of truth.
+ // No extra wallet, random state, persistence key or database mutation is needed.
+ const CHEST_RARITIES=Object.freeze([
+  {id:'N',label:'N',weight:5000,color:'#b7c6d7'},
+  {id:'R',label:'R',weight:3000,color:'#8cdda5'},
+  {id:'SR',label:'SR',weight:1500,color:'#8ebfff'},
+  {id:'SSR',label:'SSR',weight:400,color:'#d5a4ff'},
+  {id:'UR',label:'UR',weight:100,color:'#ffdb8d'}
+ ].map(Object.freeze));
+ const CHEST_ITEMS=Object.freeze({
+  market:Object.freeze([
+   ['market-n','黄金の古銭','🪙'],['market-r','交易商の印章','📜'],['market-sr','琥珀の星砂','💎'],['market-ssr','黄金王の羅針盤','🧭'],['market-ur','太陽王の聖杯','🏆']
+  ].map(Object.freeze)),
+  trail:Object.freeze([
+   ['trail-n','星露の葉','🍃'],['trail-r','風渡りの羽根','🪶'],['trail-sr','蒼樹の結晶','💎'],['trail-ssr','精霊樹の心臓','🌿'],['trail-ur','原初の星花','🌸']
+  ].map(Object.freeze)),
+  citadel:Object.freeze([
+   ['citadel-n','月光の石片','🌙'],['citadel-r','観測者の星図','🗺️'],['citadel-sr','星海の水晶','🔮'],['citadel-ssr','天空城の星核','🌌'],['citadel-ur','創星の天球儀','✨']
+  ].map(Object.freeze))
+ });
+ function chestRarity(roll){
+  if(!Number.isInteger(roll)||roll<0||roll>=10000)throw Error('宝箱抽選値不正');
+  for(const rarity of CHEST_RARITIES){if(roll<rarity.weight)return rarity;roll-=rarity.weight;}
+  throw Error('宝箱排出率不正');
+ }
+ // Stable 32-bit mixed hash, versioned and independent of route branch/difficulty/device.
+ function chestRoll(id){
+  let h=hash('pq10-chest-v1:'+id);h=Math.imul(h^(h>>>16),0x85ebca6b);h=Math.imul(h^(h>>>13),0xc2b2ae35);return ((h^(h>>>16))>>>0)%10000;
+ }
+ function chestDrop(id){
+  if(receiptValue(id)===null||!id.endsWith(':chest'))return null;
+  const [,week,route]=id.split(':'),rarity=chestRarity(chestRoll(id));
+  const [itemId,name,icon]=CHEST_ITEMS[route][CHEST_RARITIES.indexOf(rarity)];
+  return {receipt:id,week,route,itemId,name,icon,rarity:rarity.id,color:rarity.color};
+ }
+ function chestCollection(raw){
+  const drops=validateLedger(raw).claims.filter(id=>id.endsWith(':chest')).map(chestDrop).sort((a,b)=>b.week.localeCompare(a.week)||a.route.localeCompare(b.route));
+  const counts={};for(const drop of drops)counts[drop.itemId]=(counts[drop.itemId]||0)+1;
+  return {drops,counts,unique:Object.keys(counts).length,total:drops.length};
+ }
  function emptyLedger(){return {version:1,claims:[]};}
  // Ver.10.0: progression is derived exclusively from validated immutable receipts.
  // Currency spending, retries and reloading never award EXP.
@@ -430,7 +471,7 @@
  function sandboxWallet(t){const w=wallet(t.ledger,t.owned);return {...w,earned:w.earned+t.credit,balance:w.balance+t.credit};}
  function sandboxClaim(t,id){
   const result=claimReward(t.ledger,t.d,weeklyMap(t.d,t.choices,t.difficulty),t.battle,id);
-  return {...t,ledger:result.ledger,lastClaim:result.credited};
+  return {...t,ledger:result.ledger,lastClaim:result.credited,lastDrop:result.status==='claimed'?chestDrop(id):null};
  }
  function sandboxBuy(t,id){
   if(!Object.hasOwn(SHOP,id)||t.owned.includes(id)||sandboxWallet(t).balance<SHOP[id].cost)return t;
@@ -485,8 +526,10 @@
     const options=rewardOptions(t.d,map,t.battle);
     add(p,'p','受取履歴：'+t.ledger.claims.length+' / 19件');
     for(const o of options){const got=t.ledger.claims.includes(o.id);const row=add(p,'div','');add(row,'span',o.label+' ／ ＋'+o.value+' ');
-     button(row,got?'受取済み':o.ready?'受け取る':'未解放',()=>{t=sandboxClaim(t,o.id);show((o.kind==='chest'?'🎁 宝箱開封！':'💎 報酬獲得！')+' 星晶石 ＋'+t.lastClaim);},got||!o.ready);
+     button(row,got?'受取済み':o.ready?'受け取る':'未解放',()=>{t=sandboxClaim(t,o.id);show((o.kind==='chest'?'🎁 宝箱開封！':'💎 報酬獲得！')+' 星晶石 ＋'+t.lastClaim+(t.lastDrop?' ／ '+t.lastDrop.rarity+' '+t.lastDrop.name:''));},got||!o.ready);
     }
+    const chests=chestCollection(t.ledger);add(p,'h3','試験宝箱コレクション '+chests.unique+'/15');
+    for(const drop of chests.drops)add(p,'p',drop.icon+' '+drop.rarity+' '+drop.name);
     add(p,'p','クラウド同期は試験モードでは無効です。');
    }else{
     const p=section(dialog,'試験ショップ '+t.owned.length+'/8');
@@ -648,7 +691,7 @@
    add(rewards,'strong',storageError?'残高確認不可':'獲得累計：'+ledgerBalance(previewLedger)+' 星晶石');
    add(rewards,'p','星晶石は通常セーブとは別に、このブラウザに保存されます。ログイン中のアカウントとゲストの台帳は別です。クラウド同期は専用テーブルが必要です。','pq9-note');
    const statusLine=add(rewards,'p',storageError?'⚠️ 保存停止：'+storageError:rewardMessage,'pq9-note');statusLine.setAttribute('role','status');
-   function receive(id){const credited=receiveSaved(id);paint();if(credited)reveal(id.endsWith(':chest')?'🎁':'💎',id.endsWith(':chest')?'宝箱開封！':'報酬獲得！','星晶石 ＋'+credited+' 個');}
+   function receive(id){const credited=receiveSaved(id),drop=credited?chestDrop(id):null;paint();if(credited)reveal(drop?drop.icon:'💎',drop?'宝箱開封！ '+drop.rarity:'報酬獲得！','星晶石 ＋'+credited+' 個'+(drop?' ／ '+drop.name:''));}
    const syncText=add(rewards,'p',syncMessage,'pq9-note');syncText.setAttribute('role','status');
    const syncBtn=add(rewards,'button',syncChecking?'クラウド診断中…':'☁️ 遠征台帳の同期診断（読取専用）');syncBtn.type='button';syncBtn.disabled=syncChecking;
    syncBtn.onclick=async()=>{
@@ -695,13 +738,31 @@
    const options=rewardOptions(d,map,battle);
    const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
    const allBtn=add(rewards,'button','受取可能な報酬を一括受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length||!!storageError;
-   allBtn.onclick=()=>{let total=0;for(const o of ready)total+=receiveSaved(o.id);rewardMessage='今回受取：合計 '+total+' 星晶石';paint();if(total)reveal('💎','遠征報酬獲得！','星晶石 ＋'+total+' 個');};
+   allBtn.onclick=()=>{let total=0;const drops=[];for(const o of ready){const credited=receiveSaved(o.id);total+=credited;const drop=credited?chestDrop(o.id):null;if(drop)drops.push(drop);}rewardMessage='今回受取：合計 '+total+' 星晶石';paint();if(total)reveal(drops.length?'🎁':'💎','遠征報酬獲得！','星晶石 ＋'+total+' 個'+(drops.length?' ／ 宝箱：'+drops.map(x=>x.rarity+' '+x.name).join('、'):''));};
    const detail=add(rewards,'details','');add(detail,'summary','報酬一覧（'+options.filter(o=>previewLedger.claims.includes(o.id)).length+'/'+options.length+'件受取済み）');
    for(const o of options){
     const claimed=previewLedger.claims.includes(o.id);
     const item=add(detail,'div','','pq9-step');
     add(item,'p',o.label+' ／ '+o.value+' 星晶石');
     const claim=add(item,'button',claimed?'受取済み':o.ready?'受け取る':'未解放');claim.type='button';claim.disabled=claimed||!o.ready||!!storageError;claim.onclick=()=>receive(o.id);
+   }
+   const chestBox=add(rewards,'section','','pq9-step');chestBox.id='pq10-chests';
+   add(chestBox,'h3','🎁 地域限定ランダム宝箱');
+   if(storageError)add(chestBox,'p','台帳を確認できないため宝箱記録を表示できません。','pq9-note');
+   else{
+    const collection=chestCollection(previewLedger);add(chestBox,'strong','開封 '+collection.total+' 回 ／ 発見 '+collection.unique+' / 15 種');
+    const odds=add(chestBox,'details','');add(odds,'summary','排出率・仕組み');
+    add(odds,'p',CHEST_RARITIES.map(r=>r.label+' '+(r.weight/100)+'%').join(' ／ '),'pq9-note');
+    add(odds,'p','各地域・各週1個。受取済みの宝箱も対象。地域と週の受取IDから結果を固定するため、再読み込みや難易度変更で再抽選されません。アイテムは収集用で、星晶石15個も従来通り受取できます。','pq9-note');
+    const list=add(chestBox,'div','','pq9-grid');
+    for(const drop of collection.drops.slice(0,6)){
+     const card=add(list,'div','','pq9-route');card.style.borderColor=drop.color;
+     add(card,'div',drop.icon,'pq9-fighter-icon');const title=add(card,'strong',drop.rarity+' '+drop.name);title.style.color=drop.color;
+     add(card,'p',drop.week+' ｜ '+d.routes.find(r=>r.id===drop.route).title,'pq9-note');
+    }
+    if(!collection.total)add(chestBox,'p','まだ宝箱を開けていません。分岐探索の条件を満たすと受取できます。','pq9-note');
+    const log=add(chestBox,'details','');add(log,'summary','宝箱履歴（直近30件）');
+    for(const drop of collection.drops.slice(0,30))add(log,'p',drop.week+' ｜ '+drop.rarity+' '+drop.name,'pq9-note');
    }
    const history=add(rewards,'details','');add(history,'summary','受取履歴（'+previewLedger.claims.length+'件）');
    for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
@@ -817,14 +878,14 @@
      bar(item,step.value,step.target,step.name);
     }
    }
-   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。星晶石は独立した端末台帳に保存します。通常セーブには書き込みません。','pq9-note');
+   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱は報酬受取時に限定収集品が確定します。遭遇イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。星晶石は独立した端末台帳に保存します。通常セーブには書き込みません。','pq9-note');
    const refresh=add(panel,'button','↻ 進捗を更新');refresh.type='button';refresh.onclick=paint;
   }
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
