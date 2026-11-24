@@ -80,7 +80,8 @@
    input.addEventListener('input',()=>{draft.name=nameClean(input.value);refresh();});refresh();
   }
   dialog.addEventListener('close',()=>{draft={...applied};testing=false;if(opener?.isConnected)opener.focus();});
+  window.PQ105Profile.open=open;
   window.addEventListener('storage',e=>{if(e.key===KEY||e.key===null)apply(read(localStorage));});
  }
- window.PQ105Profile=Object.freeze({mount});
+ window.PQ105Profile={mount,open:null};
 })();
