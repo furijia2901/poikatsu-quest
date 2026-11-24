@@ -221,6 +221,14 @@ const server=http.createServer((req,res)=>{
    assert.equal(await sandbox.getByRole('button',{name:'星界奥義',exact:true}).isEnabled(),true);
    await sandbox.getByRole('button',{name:'星界奥義',exact:true}).click();
    assert.match(await sandbox.innerText(),/勝利！/);
+   await sandbox.getByRole('button',{name:'ガチャ',exact:true}).click();
+   assert.match(await sandbox.innerText(),/URまであと最大 20 回/);
+   await sandbox.getByRole('button',{name:'試験召喚（20星晶石）',exact:true}).click();
+   assert.match(await sandbox.innerText(),/935 個/);
+   assert.match(await sandbox.innerText(),/召喚成功：/);
+   assert.match(await sandbox.innerText(),/1：(?:N|R|SR|SSR|UR) /);
+   console.log('PASS isolated summon, shared wallet and result '+viewport.width+'px');
+
    console.log('PASS enhanced combat, sword effect, status and cleanse '+viewport.width+'px');
 
    await sandbox.getByRole('button',{name:'試験データをリセット',exact:true}).click();
