@@ -214,6 +214,34 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),profileBefore);
    console.log('PASS cosmetic profile preview, test-mode isolation, explicit save, reset and original game preservation '+viewport.width+'px');
 
+   const collection=page.locator('#pq105-collection');
+   const collectionBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await lobby.locator('[data-pq105-collection-open="inventory"]').click();
+   assert.equal(await collection.locator('[data-pq105-collection-id]').count(),8);
+   await collection.locator('[data-pq105-collection-tab="gacha"]').click();
+   assert.equal(await collection.locator('[data-pq105-collection-id]').count(),11);
+   await collection.getByRole('searchbox').fill('遠征');
+   assert.equal(await collection.locator('[data-pq105-collection-id]').count(),1);
+   await collection.locator('[data-pq105-collection-id="expedition-gacha"]').getByRole('button',{name:'召喚画面へ',exact:true}).click();
+   await page.locator('#pq10-gacha').waitFor({state:'visible'});
+   await page.locator('#pq105-toolbar').waitFor({state:'visible'});
+   await gotoTab('home');
+   await lobby.getByRole('button',{name:'🧪 コレクション試験',exact:true}).click();
+   assert.match(await collection.innerText(),/SSR 試験星剣/);
+   await collection.locator('[data-pq105-collection-tab="codex"]').click();
+   assert.equal(await collection.locator('[data-pq105-collection-id]').count(),5);
+   await collection.locator('[data-pq105-collection-id="festival-codex"]').getByRole('button',{name:'詳細を開く',exact:true}).click();
+   assert.match(await collection.getByRole('status').innerText(),/本番画面は変更していません/);
+   assert.equal(await page.locator('#home.active').count(),1);
+   await collection.getByRole('searchbox').fill('該当しない');
+   assert.match(await collection.innerText(),/該当するコンテンツはありません/);
+   await collection.getByRole('button',{name:'試験初期化',exact:true}).click();
+   assert.equal(await collection.locator('[data-pq105-collection-id]').count(),8);
+   await collection.getByRole('button',{name:'閉じる',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),collectionBefore);
+   console.log('PASS collection center, 24 routes, search, direct navigation and isolated fixture '+viewport.width+'px');
+
+
 
 
 
