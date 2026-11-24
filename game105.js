@@ -149,7 +149,7 @@
   const search=el('input');search.type='search';search.placeholder='コンテンツを検索（例：ガチャ、散歩）';search.setAttribute('aria-label','コンテンツ検索');dialog.append(search);
   const filters=el('div','','pq105-menu-filters');dialog.append(filters);
   const body=el('div','','pq105-menu-content');dialog.append(body);
-  const foot=el('div','','pq105-menu-foot');button(foot,'🔊 サウンド設定',()=>{dialog.close();window.PQ105Audio?.open?.(false);});for(const [mode,label] of [['news','📢 お知らせ'],['gifts','🎁 プレゼント']])button(foot,label,()=>{dialog.close();window.PQ105Inbox?.open?.(mode,false);});for(const [kind,label] of [['inventory','🎒 総合持ち物'],['gacha','🌠 ガチャセンター'],['codex','📖 総合図鑑']])button(foot,label,()=>{dialog.close();window.PQ105Collection?.open?.(kind,false);});button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
+  const foot=el('div','','pq105-menu-foot');button(foot,'🧪 テストセンター',()=>{dialog.close();window.PQ105Tests?.open?.();});button(foot,'🔊 サウンド設定',()=>{dialog.close();window.PQ105Audio?.open?.(false);});for(const [mode,label] of [['news','📢 お知らせ'],['gifts','🎁 プレゼント']])button(foot,label,()=>{dialog.close();window.PQ105Inbox?.open?.(mode,false);});for(const [kind,label] of [['inventory','🎒 総合持ち物'],['gacha','🌠 ガチャセンター'],['codex','📖 総合図鑑']])button(foot,label,()=>{dialog.close();window.PQ105Collection?.open?.(kind,false);});button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
   document.body.append(dialog);
   let group='all';
   const groups=[...new Map(entries.map(e=>[e.groupId,e.group])).entries()];
@@ -245,6 +245,7 @@
   dialog.addEventListener('close',()=>{const target=destination;destination=null;if(target){const leaf=nav.querySelector('button[data-tab="'+target+'"]');leaf?.click();if(target==='settings92')document.querySelector('#settings92 [data-pq92-settings-choice="0"]')?.click();document.querySelector('#'+target+' h2')?.scrollIntoView({block:'start'});}});
   window.PQ105Audio?.mount(main,dialog);
   mountMenu(main,nav,openTitle);
+  window.PQ105Tests?.mount(nav,openTitle);
   openTitle();
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
