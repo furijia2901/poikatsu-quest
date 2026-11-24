@@ -198,6 +198,20 @@ const server=http.createServer((req,res)=>{
    await sandbox.getByRole('button',{name:'金煌の機竜',exact:true}).click();
    await sandbox.getByRole('button',{name:'通常攻撃',exact:true}).click();
    assert.match(await sandbox.innerText(),/TURN 2/);
+   assert.match(await sandbox.innerText(),/星断の剣.*通常攻撃 \+4/);
+   assert.equal(await sandbox.getByRole('button',{name:'浄化',exact:true}).isDisabled(),true);
+   await sandbox.getByRole('button',{name:'通常攻撃',exact:true}).click();
+   await sandbox.getByRole('button',{name:'通常攻撃',exact:true}).click();
+   assert.match(await sandbox.innerText(),/火傷 残り2行動/);
+   assert.equal(await sandbox.getByRole('button',{name:'浄化',exact:true}).isEnabled(),true);
+   await sandbox.getByRole('button',{name:'浄化',exact:true}).click();
+   assert.match(await sandbox.innerText(),/状態異常：なし/);
+   await sandbox.getByRole('button',{name:'防御',exact:true}).click();
+   assert.equal(await sandbox.getByRole('button',{name:'星界奥義',exact:true}).isEnabled(),true);
+   await sandbox.getByRole('button',{name:'星界奥義',exact:true}).click();
+   assert.match(await sandbox.innerText(),/勝利！/);
+   console.log('PASS enhanced combat, sword effect, status and cleanse '+viewport.width+'px');
+
    await sandbox.getByRole('button',{name:'試験データをリセット',exact:true}).click();
    assert.match(await sandbox.innerText(),/1000 個/);
    await sandbox.getByRole('button',{name:'テストを終了',exact:true}).click();
