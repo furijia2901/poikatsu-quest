@@ -120,6 +120,34 @@ const server=http.createServer((req,res)=>{
    assert.ok(await home.locator('.pq92-shortcuts').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'home shortcuts overflow');
    console.log('PASS home views and quick links '+viewport.width+'px');
 
+   const lobby=page.locator('#pq105-home');
+   assert.equal(await lobby.isVisible(),true);
+   assert.equal(await lobby.locator('[data-pq105-home-link]').count(),12);
+   const readStatus=await page.evaluate(()=>({gold:document.getElementById('gold').textContent,energy:document.getElementById('energy').textContent,level:document.getElementById('lv').textContent}));
+   assert.match(await lobby.innerText(),new RegExp(readStatus.level.replace('.','\\.')));
+   assert.equal(await lobby.locator('.pq105-balance strong').first().innerText(),readStatus.gold);
+   assert.equal(await lobby.locator('.pq105-balance strong').last().innerText(),readStatus.energy);
+   const feature=lobby.locator('.pq105-feature');
+   assert.equal(await feature.getAttribute('data-theme'),'expedition');
+   await feature.getByRole('button',{name:'次のおすすめ',exact:true}).click();
+   assert.equal(await feature.getAttribute('data-theme'),'outdoor');
+   await feature.getByRole('button',{name:'コンテンツへ',exact:true}).click();
+   await page.locator('#outdoor60.active').waitFor();
+   await gotoTab('home');
+   await feature.getByRole('button',{name:'前のおすすめ',exact:true}).click();
+   assert.equal(await feature.getAttribute('data-theme'),'expedition');
+   const {HOME_LINKS}=require('../game105.js');
+   for(const [id] of HOME_LINKS){await lobby.locator('[data-pq105-home-link="'+id+'"]').click();await page.locator('#'+id+'.active').waitFor();await gotoTab('home');}
+   await lobby.getByRole('button',{name:'🎒 装備・持ち物',exact:true}).click();
+   assert.equal(await home.locator('#equipmentList').isVisible(),true);
+   await gotoTab('home');
+   await lobby.getByRole('button',{name:'🎁 ログイン報酬',exact:true}).click();
+   assert.equal(await page.locator('#loginBtn').isVisible(),true);
+   await gotoTab('home');
+   assert.ok(await lobby.locator('.pq105-home-grid').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'lobby grid overflow');
+   console.log('PASS lobby profile, currencies, all twelve links, featured carousel, equipment and reward routing '+viewport.width+'px');
+
+
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),navBefore,'navigation must not change game or storage');
    assert.ok(await page.locator('.pq92-categories').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'categories overflow');
    await page.locator('#home').getByRole('button',{name:'📜 依頼を見る',exact:true}).click();
