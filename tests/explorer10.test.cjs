@@ -52,10 +52,10 @@ check('cached draw history is scope separated and never truncated',()=>{const m=
 
 
 const {expeditionCodex,filterCodex,CODEX_GROUPS}=require('../expedition90.js');
-check('codex contains 39 distinct entries across four groups',()=>{
+check('codex contains 40 distinct entries across four groups',()=>{
  const x=expeditionCodex(emptyLedger(),[],[]);
- assert.equal(x.total,39);assert.equal(x.found,0);assert.equal(new Set(x.entries.map(e=>e.id)).size,39);
- assert.deepEqual(x.groups,{gear:{found:0,total:8},chest:{found:0,total:15},gacha:{found:0,total:10},enemy:{found:0,total:6}});
+ assert.equal(x.total,40);assert.equal(x.found,0);assert.equal(new Set(x.entries.map(e=>e.id)).size,40);
+ assert.deepEqual(x.groups,{gear:{found:0,total:8},chest:{found:0,total:15},gacha:{found:0,total:10},enemy:{found:0,total:7}});
 });
 check('codex reconstructs owned items, chest loot, summons and claimed wins without mutation',()=>{
  const l=ledger(all),owned=['sword','shield'],draws=drawPlan(l,owned,[],request(1),0,1).rows;
@@ -77,5 +77,34 @@ check('codex filters compose and include unowned rarities',()=>{
  assert.equal(filterCodex(x,'enemy','all','UR').length,0);assert.equal(filterCodex(x,'gear','missing','all').length,8);
 });
 check('codex rejects corrupt source data instead of resetting collection',()=>{assert.throws(()=>expeditionCodex(ledger(['invalid']),[],[]));assert.throws(()=>expeditionCodex(emptyLedger(),['fake'],[]));assert.throws(()=>expeditionCodex(emptyLedger(),[],[{draw_no:2,request_id:request(1),item_id:'n1'}]));});
+
+
+const {HIDDEN_BOSS,hiddenRequirements,beginHiddenBattle,hiddenPhase,enemyIntent,rewardOptions,claimReward,receiptValue}=require('../expedition90.js');
+check('hidden gate requires all nine checkpoints, three current boss receipts, level and chest collection',()=>{
+ const l=ledger(all);assert.equal(hiddenRequirements(t.d,l).unlocked,true);
+ assert.equal(hiddenRequirements(t.d,emptyLedger()).unlocked,false);
+ assert.equal(hiddenRequirements(t.d,ledger(all.filter(x=>x!==id('trail','boss')))).unlocked,false);
+ assert.equal(hiddenRequirements({...t.d,cleared:8},l).unlocked,false);
+ assert.equal(hiddenRequirements(t.d,ledger(all.filter(x=>!x.endsWith(':chest')))).unlocked,false);
+ assert.equal(beginHiddenBattle(t.d,'fire',emptyLedger()),null);
+});
+check('hidden battle has two distinct predictable phases and is beatable at unlock level',()=>{
+ const l=ledger(all),m=weeklyMap(t.d),initial=beginHiddenBattle(t.d,'fire',l,['sword'],'sword');
+ assert.equal(initial.enemy.hp,250);assert.equal(initial.growth.level,5);
+ let b=initial;
+ for(const a of ['skill','guard','guard','burst'])b=battleStep(b,a);
+ assert.equal(hiddenPhase(b),2);assert.match(b.log.join(' '),/虚空覚醒/);
+ assert.equal(enemyIntent(b).special,false);
+ for(const a of ['guard','guard','burst','guard','skill'])b=battleStep(b,a);
+ assert.equal(b.status,'won');assert.equal(b.enemy.hp,0);assert.ok(b.player.hp>0);assert.equal(initial.enemy.hp,250);
+ const receipt=receiptId(week,'all','hidden');assert.equal(receipt,'v2:'+week+':all:hidden');assert.equal(receiptValue(receipt),40);
+ assert.equal(receiptValue('v1:'+week+':all:hidden'),null);
+ assert.equal(claimReward(l,t.d,m,initial,receipt).status,'locked');
+ assert.equal(claimReward(emptyLedger(),t.d,m,b,receipt).status,'locked');
+ const result=claimReward(l,t.d,m,b,receipt);assert.equal(result.credited,40);assert.equal(explorerProgress(result.ledger).xp,explorerProgress(l).xp+120);
+ assert.equal(claimReward(result.ledger,t.d,m,b,receipt).status,'duplicate');
+ assert.equal(expeditionCodex(result.ledger,[],[]).entries.find(x=>x.id==='enemy:all:hidden').count,1);
+ assert.equal(rewardOptions(t.d,m,b,l).length,20);
+});
 
 console.log(n+' explorer checks passed');
