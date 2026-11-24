@@ -37,6 +37,27 @@ const server=http.createServer((req,res)=>{
    assert.equal(await page.locator('#cloud-panel').count(),1);
    await gotoTab('home');
    assert.equal(await page.locator('#cloud-panel').isVisible(),false);
+   const home=page.locator('#home');
+   assert.equal(await home.locator('#pq92-home-today').isVisible(),true);
+   assert.equal(await home.locator('#equipmentList').isVisible(),false);
+   assert.equal(await home.locator('#classes').isVisible(),false);
+   assert.equal(await home.locator('[data-pq92-shortcut]').count(),6);
+   await home.locator('[data-pq92-home-view="profile"]').click();
+   assert.equal(await home.locator('#classes').isVisible(),true);
+   assert.equal(await home.locator('#guildHeadline').isVisible(),false);
+   await home.locator('[data-pq92-home-view="equipment"]').click();
+   assert.equal(await home.locator('#equipmentList').isVisible(),true);
+   assert.equal(await home.getByRole('button',{name:/1回引く（100G）/}).isVisible(),true);
+   await home.locator('[data-pq92-home-view="today"]').click();
+   for(const id of ['quests','outdoor60','expedition90','missions','grand50','season13']){
+    await home.locator('[data-pq92-shortcut="'+id+'"]').click();
+    assert.equal(await page.locator('#'+id+'.active').isVisible(),true);
+    if(id==='expedition90')assert.equal(await page.locator('#expedition90 .pq9-hero').isVisible(),true);
+    await gotoTab('home');
+   }
+   assert.ok(await home.locator('.pq92-shortcuts').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'home shortcuts overflow');
+   console.log('PASS home views and quick links '+viewport.width+'px');
+
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),navBefore,'navigation must not change game or storage');
    assert.ok(await page.locator('.pq92-categories').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'categories overflow');
    await page.locator('#home').getByRole('button',{name:'📜 依頼を見る',exact:true}).click();
