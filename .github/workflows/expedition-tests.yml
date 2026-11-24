@@ -1,0 +1,20 @@
+name: Star Expedition tests
+on:
+  push:
+    branches: [v9-star-expedition, main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check expedition90.js
+      - run: node tests/expedition90.test.cjs
+      - run: node tests/diagnostics-release.test.cjs
