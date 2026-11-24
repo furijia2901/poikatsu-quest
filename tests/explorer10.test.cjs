@@ -50,4 +50,32 @@ check('summon and shop share wallet',()=>{const l=ledger([id('market','boss'),id
 check('draw history rejects holes, duplicates and invalid pity',()=>{assert.throws(()=>validateDraws([{draw_no:2,request_id:request(1),item_id:'n1'}]));assert.throws(()=>validateDraws(Array.from({length:20},(_,i)=>({draw_no:i+1,request_id:request(i+1),item_id:'n1'}))));assert.throws(()=>validateDraws([{draw_no:1,request_id:request(1),item_id:'fake'}]));});
 check('cached draw history is scope separated and never truncated',()=>{const m=new Map(),store={getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)};const a=drawPlan(emptyLedger(),[],[],request(1),9000,1,20);saveDraws(store,'guest',a.rows);assert.deepEqual(readDraws(store,'guest'),a.rows);assert.deepEqual(readDraws(store,'account:a'),[]);assert.throws(()=>saveDraws(store,'guest',[]));});
 
+
+const {expeditionCodex,filterCodex,CODEX_GROUPS}=require('../expedition90.js');
+check('codex contains 39 distinct entries across four groups',()=>{
+ const x=expeditionCodex(emptyLedger(),[],[]);
+ assert.equal(x.total,39);assert.equal(x.found,0);assert.equal(new Set(x.entries.map(e=>e.id)).size,39);
+ assert.deepEqual(x.groups,{gear:{found:0,total:8},chest:{found:0,total:15},gacha:{found:0,total:10},enemy:{found:0,total:6}});
+});
+check('codex reconstructs owned items, chest loot, summons and claimed wins without mutation',()=>{
+ const l=ledger(all),owned=['sword','shield'],draws=drawPlan(l,owned,[],request(1),0,1).rows;
+ const before=JSON.stringify([l,owned,draws]),x=expeditionCodex(l,owned,draws);
+ assert.equal(x.found,12);assert.equal(x.groups.gear.found,2);assert.equal(x.groups.chest.found,3);assert.equal(x.groups.gacha.found,1);assert.equal(x.groups.enemy.found,6);
+ assert.equal(JSON.stringify([l,owned,draws]),before);
+ assert.equal(x.entries.find(e=>e.id==='gear:sword').count,1);
+ assert.equal(x.entries.find(e=>e.id==='gacha:ur1').count,1);
+ assert.equal(x.entries.find(e=>e.id==='enemy:market:boss').count,1);
+});
+check('codex counts duplicate summons but does not inflate completion',()=>{
+ const l=ledger(all),a=drawPlan(l,[],[],request(1),9999,1),b=drawPlan(l,[],a.rows,request(2),9999,1);
+ const x=expeditionCodex(l,[],b.rows);
+ assert.equal(x.entries.find(e=>e.id==='gacha:n1').count,2);assert.equal(x.groups.gacha.found,1);assert.equal(x.fragments,1);
+});
+check('codex filters compose and include unowned rarities',()=>{
+ const x=expeditionCodex(emptyLedger(),[],[]);
+ assert.equal(filterCodex(x,'chest','missing','UR').length,3);assert.equal(filterCodex(x,'gacha','missing','UR').length,2);assert.equal(filterCodex(x,'all','found','all').length,0);
+ assert.equal(filterCodex(x,'enemy','all','UR').length,0);assert.equal(filterCodex(x,'gear','missing','all').length,8);
+});
+check('codex rejects corrupt source data instead of resetting collection',()=>{assert.throws(()=>expeditionCodex(ledger(['invalid']),[],[]));assert.throws(()=>expeditionCodex(emptyLedger(),['fake'],[]));assert.throws(()=>expeditionCodex(emptyLedger(),[],[{draw_no:2,request_id:request(1),item_id:'n1'}]));});
+
 console.log(n+' explorer checks passed');
