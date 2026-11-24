@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep}=require('../expedition90.js');
+const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward}=require('../expedition90.js');
 const now=Date.parse('2026-11-24T03:00:00Z');
 const date=d=>d+'T03:00:00Z';
 const session=(id,d,cat='walk')=>({id,completedAt:date(d),mission:{cat}});
@@ -62,4 +62,20 @@ check('all 18 encounter/difficulty combinations beatable with elemental tactics'
   assert.equal(b.status,'won',route+'/'+kind+'/'+diff+' '+JSON.stringify(b));
  }
 });
+
+const week=done.period.start,rid=(r,k)=>receiptId(week,r,k);
+check('canonical receipt validation',()=>{assert.equal(receiptValue(rid('market','chest')),15);assert.equal(receiptId('2026-11-24','market','chest'),null);assert.equal(receiptId(week,'all','boss'),null);assert.equal(receiptValue('v1:'+week+':market:chest:extra'),null);});
+check('empty and legacy migration',()=>{assert.deepEqual(validateLedger(undefined),emptyLedger());assert.equal(ledgerBalance(undefined),0);});
+check('malformed ledger rejected',()=>{for(const x of [null,{version:2,claims:[]},{version:1,claims:['bad']},{version:1,claims:[rid('market','chest'),rid('market','chest')]},{version:1,claims:[],balance:999}])assert.throws(()=>validateLedger(x));});
+check('reward slots fixed at 19',()=>assert.equal(rewardOptions(done,map).length,19));
+check('locked and forged rewards refused',()=>{const d=derive({},now);for(const id of [rid('market','step1'),rid('market','chest'),rid('all','weekly'),'fake'])assert.equal(claimReward(emptyLedger(),d,weeklyMap(d),null,id).credited,0);});
+check('claim and duplicate',()=>{const a=claimReward(emptyLedger(),done,map,null,rid('market','chest'));assert.equal(a.credited,15);assert.equal(ledgerBalance(a.ledger),15);const b=claimReward(a.ledger,done,map,null,rid('market','chest'));assert.equal(b.status,'duplicate');assert.equal(b.credited,0);});
+check('branch and difficulty cannot duplicate receipt',()=>{const a=claimReward(emptyLedger(),done,map,null,rid('market','chest'));const other=weeklyMap(done,{market:map[0].branches[1].id},'easy');assert.equal(claimReward(a.ledger,done,other,null,rid('market','chest')).status,'duplicate');});
+check('boss must be won in correct week and route',()=>{let b=start();while(b.status==='active')b=battleStep(b,b.player.mp>=2?'skill':'attack');assert.equal(b.status,'won');assert.equal(claimReward(emptyLedger(),done,map,b,rid('market','boss')).credited,30);for(const x of [{...b,status:'lost'},{...b,week:'2026-11-16'},{...b,routeId:'trail'},{...b,branchId:'fake'},{...b,enemy:{...b.enemy,hp:1}}])assert.equal(claimReward(emptyLedger(),done,map,x,rid('market','boss')).credited,0);});
+check('weekly completion reward',()=>{assert.equal(claimReward(emptyLedger(),done,map,null,rid('all','weekly')).credited,25);const d=derive(state,now);assert.equal(claimReward(emptyLedger(),d,weeklyMap(d),null,rid('all','weekly')).credited,0);});
+check('week boundary denies expired unclaimed receipt',()=>{const d=derive(full,end+86400000);assert.equal(claimReward(emptyLedger(),d,weeklyMap(d),null,rid('market','chest')).credited,0);});
+check('same claim on two devices merges once',()=>{const a={version:1,claims:[rid('market','chest')]};assert.equal(ledgerBalance(mergeLedgers(a,a)),15);});
+check('divergent device receipts union',()=>{const a={version:1,claims:[rid('market','chest')]},b={version:1,claims:[rid('trail','boss')]};assert.equal(ledgerBalance(mergeLedgers(a,b)),45);assert.deepEqual(mergeLedgers(a,b),mergeLedgers(b,a));assert.deepEqual(mergeLedgers(a,mergeLedgers(a,b)),mergeLedgers(a,b));});
+check('detect stale overwrite and old backup',()=>{const a={version:1,claims:[rid('market','chest')]};assert.deepEqual(ledgerLoss(undefined,a),a.claims);assert.deepEqual(ledgerLoss(a,a),[]);});
+check('claim and union do not mutate inputs',()=>{const a=emptyLedger(),before=JSON.stringify([a,full,done,map]);const b=claimReward(a,done,map,null,rid('market','chest'));mergeLedgers(a,b.ledger);assert.equal(JSON.stringify([a,full,done,map]),before);});
 console.log(n+' checks passed');
