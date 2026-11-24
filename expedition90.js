@@ -266,6 +266,76 @@
   for(const id of verified.claims)persistReceipt(storage,scope,id);
   return readReceipts(storage,scope);
  }
+
+ // Phase 5: fixed-price, one-time collectibles. Account purchases are server-authoritative.
+ const SHOP=Object.freeze({
+  sword:{name:'星断の剣',icon:'⚔️',type:'武器',cost:60,description:'星の光を宿す遠征記念武器'},
+  shield:{name:'蒼樹の盾',icon:'🛡️',type:'装備',cost:55,description:'星風の森の守護を象徴する盾'},
+  cloak:{name:'宵星の外套',icon:'🧥',type:'装飾',cost:45,description:'夜空のような外套'},
+  crown:{name:'星海の冠',icon:'👑',type:'装飾',cost:100,description:'星海の幻竜を称える冠'},
+  compass:{name:'月銀の羅針盤',icon:'🧭',type:'宝物',cost:35,description:'未知の道を指す羅針盤'},
+  lantern:{name:'星灯のランタン',icon:'🏮',type:'宝物',cost:25,description:'旅路を照らす小さな光'},
+  title:{name:'星を継ぐ者',icon:'🏅',type:'称号',cost:80,description:'遠征者の特別な称号'},
+  relic:{name:'双星の秘宝',icon:'💠',type:'宝物',cost:120,description:'二つの星が重なる伝説の秘宝'}
+ });
+ const SHOP_PREFIX='pq9-shop-v1:',EQUIP_PREFIX='pq9-display-v1:';
+ function shopPrefix(scope){receiptPrefix(scope);return SHOP_PREFIX+encodeURIComponent(scope)+':';}
+ function validateOwned(ids){
+  if(!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||!Object.hasOwn(SHOP,id))||new Set(ids).size!==ids.length)throw Error('遠征購入履歴が不正');
+  return [...ids].sort();
+ }
+ function readOwned(storage,scope){
+  const prefix=shopPrefix(scope),ids=[];
+  for(let i=0;i<storage.length;i++){
+   const k=storage.key(i);if(typeof k!=='string'||!k.startsWith(prefix))continue;
+   if(storage.getItem(k)!=='1')throw Error('遠征購入履歴が破損');
+   ids.push(k.slice(prefix.length));
+  }
+  return validateOwned(ids);
+ }
+ function wallet(ledger,owned){
+  const earned=ledgerBalance(ledger),spent=validateOwned(owned).reduce((n,id)=>n+SHOP[id].cost,0);
+  return {earned,spent,balance:earned-spent};
+ }
+ function purchasePlan(ledger,owned,id){
+  const ids=validateOwned(owned),w=wallet(ledger,ids);
+  if(!Object.hasOwn(SHOP,id))return {status:'invalid',owned:ids,wallet:w};
+  if(ids.includes(id))return {status:'duplicate',owned:ids,wallet:w};
+  if(w.balance<SHOP[id].cost)return {status:'insufficient',owned:ids,wallet:w};
+  const next=validateOwned([...ids,id]);return {status:'purchased',owned:next,wallet:wallet(ledger,next)};
+ }
+ function storeOwned(storage,scope,id){
+  if(!Object.hasOwn(SHOP,id))throw Error('商品ID不正');
+  const key=shopPrefix(scope)+id,old=storage.getItem(key);
+  if(old!==null&&old!=='1')throw Error('購入履歴が破損');
+  if(old===null)storage.setItem(key,'1');
+  if(storage.getItem(key)!=='1')throw Error('購入保存に失敗');
+ }
+ async function buyGuest(storage,scope,id,locks){
+  if(scope!=='guest')throw Error('アカウント購入はクラウドで処理します');
+  if(!locks||typeof locks.request!=='function')throw Error('このブラウザでは安全な購入が利用できません');
+  return locks.request('pq9-shop-guest',async()=>{
+   const plan=purchasePlan(readReceipts(storage,scope),readOwned(storage,scope),id);
+   if(plan.status==='purchased')storeOwned(storage,scope,id);
+   return {...plan,owned:readOwned(storage,scope)};
+  });
+ }
+ function collectionMilestones(ledger,owned){
+  const ids=validateOwned(owned),claims=validateLedger(ledger).claims;
+  const weeks=new Set(claims.filter(id=>id.endsWith(':all:weekly')).map(id=>id.split(':')[1]));
+  const bosses=claims.filter(id=>id.endsWith(':boss')).length;
+  return [{name:'初めての宝物',value:ids.length,target:1},{name:'遠征収集家',value:ids.length,target:4},{name:'星の宝物庫',value:ids.length,target:8},{name:'歴戦の遠征者',value:bosses,target:6},{name:'星巡りの常連',value:weeks.size,target:4}].map(x=>({...x,done:x.value>=x.target}));
+ }
+ function readDisplay(storage,scope,owned){
+  const id=storage.getItem(EQUIP_PREFIX+encodeURIComponent(scope));
+  return id&&validateOwned(owned).includes(id)?id:null;
+ }
+ function setDisplay(storage,scope,owned,id){
+  const key=EQUIP_PREFIX+encodeURIComponent(scope);
+  if(id===null){storage.removeItem(key);return null;}
+  if(!validateOwned(owned).includes(id))throw Error('未所持のアイテム');
+  storage.setItem(key,id);return readDisplay(storage,scope,owned);
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -283,9 +353,9 @@
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='';
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='',owned=[],shopError='',shopBusy=false,shopMessage='';
   const scopeNow=()=>typeof cloud!=='undefined'&&cloud.session?.user?.id?'account:'+cloud.session.user.id:'guest';
-  function refreshLedger(){try{previewLedger=readReceipts(localStorage,activeScope);storageError='';}catch(e){storageError=e.message;}}
+  function refreshLedger(){try{previewLedger=readReceipts(localStorage,activeScope);storageError='';}catch(e){storageError=e.message;}try{owned=readOwned(localStorage,activeScope);shopError='';}catch(e){shopError=e.message;}}
   function receiveSaved(id){
    if(activeScope!==scopeNow()||storageError)return 0;
    try{const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty),result=persistClaim(localStorage,activeScope,fresh,freshMap,battle,id);previewLedger=result.ledger;rewardMessage=result.status==='claimed'?'✓ 星晶石 '+result.credited+' 個を受取':result.status==='duplicate'?'受取済みです':'まだ条件を達成していません';return result.credited;}
@@ -293,7 +363,7 @@
   }
   function paint(){
    if(!panel.classList.contains('active'))return;
-   const scope=scopeNow();if(scope!==activeScope){activeScope=scope;previewLedger=emptyLedger();battle=null;rewardMessage='';syncMessage='';}refreshLedger();
+   const scope=scopeNow();if(scope!==activeScope){activeScope=scope;previewLedger=emptyLedger();owned=[];battle=null;rewardMessage='';syncMessage='';shopMessage='';}refreshLedger();
    const d=derive(typeof s==='undefined'?{}:s);
    if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';battle=null;rewardMessage='';}
    const map=weeklyMap(d,choices,difficulty);
@@ -301,6 +371,7 @@
    const hero=add(panel,'section','','pq9-hero');
    add(hero,'p','VER.9.0 · STAR EXPEDITION','pq9-note');
    add(hero,'h2','星巡り遠征');
+   const display=shopError?null:readDisplay(localStorage,activeScope,owned);if(display)add(hero,'strong',SHOP[display].icon+' '+SHOP[display].name+'（遠征展示中）');
    add(hero,'p',d.period.start+' ～ '+d.period.end+'（日本時間）');
    add(hero,'strong',d.rank+'　｜　'+d.cleared+' / '+d.total+' 地点攻略');
    bar(hero,d.cleared,d.total,'遠征全体の攻略進捗');
@@ -359,7 +430,7 @@
    }
    const rewards=add(panel,'section','','pq9-route');
    add(rewards,'h3','💎 遠征報酬・星晶石');
-   add(rewards,'strong',storageError?'残高確認不可':'所持数：'+ledgerBalance(previewLedger)+' 星晶石');
+   add(rewards,'strong',storageError?'残高確認不可':'獲得累計：'+ledgerBalance(previewLedger)+' 星晶石');
    add(rewards,'p','星晶石は通常セーブとは別に、このブラウザに保存されます。ログイン中のアカウントとゲストの台帳は別です。クラウド同期は専用テーブルが必要です。','pq9-note');
    const statusLine=add(rewards,'p',storageError?'⚠️ 保存停止：'+storageError:rewardMessage,'pq9-note');statusLine.setAttribute('role','status');
    function receive(id){receiveSaved(id);paint();}
@@ -418,6 +489,58 @@
    }
    const history=add(rewards,'details','');add(history,'summary','受取履歴（'+previewLedger.claims.length+'件）');
    for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
+   const shop=add(panel,'section','','pq9-route');shop.id='pq9-shop';
+   add(shop,'h3','🏪 星巡り遠征ショップ');
+   const w=storageError||shopError?null:wallet(previewLedger,owned);
+   add(shop,'strong',w?'💎 利用可能（端末記録）：'+w.balance+' ／ 消費 '+w.spent:'購入履歴の確認が必要です');
+   add(shop,'p','限定品は各1個のみ。武器・装備は遠征内の展示用で、通常戦闘の性能には影響しません。ゲストは端末内購入、ログイン中はクラウドで残高を確認して購入します。','pq9-note');
+   const msg=add(shop,'p',shopError||shopMessage,'pq9-note');msg.setAttribute('role','status');
+   async function refreshPurchases(scope){
+    if(!scope.startsWith('account:'))throw Error('ログインが必要');
+    const uid=scope.slice(8);await cloudEnsureToken();if(scopeNow()!==scope)throw Error('アカウントが変わりました');
+    const rows=await cloudRequest('/rest/v1/pq_expedition_purchases?user_id=eq.'+encodeURIComponent(uid)+'&select=item_id&limit=100');
+    if(scopeNow()!==scope)throw Error('アカウントが変わりました');
+    if(!Array.isArray(rows))throw Error('購入履歴の形式不正');
+    const ids=validateOwned(rows.map(x=>x.item_id));
+    for(const id of ids)storeOwned(localStorage,scope,id);
+    if(readOwned(localStorage,scope).some(id=>!ids.includes(id)))throw Error('クラウド購入履歴との不一致');
+    return ids;
+   }
+   const refreshShop=add(shop,'button','☁️ 購入履歴を同期');refreshShop.type='button';refreshShop.disabled=shopBusy||!activeScope.startsWith('account:');
+   refreshShop.onclick=async()=>{if(shopBusy||scopeNow()!==activeScope)return;const scope=activeScope;shopBusy=true;paint();try{await refreshPurchases(scope);if(scopeNow()===scope)shopMessage='購入履歴を同期しました';}catch(e){if(scopeNow()===scope)shopMessage='同期中止：'+e.message;}finally{shopBusy=false;paint();}};
+   async function buy(id){
+    if(shopBusy||storageError||shopError||scopeNow()!==activeScope)return;
+    const scope=activeScope,item=SHOP[id];
+    if(!confirm(item.name+' を '+item.cost+' 星晶石で交換しますか？'))return;
+    shopBusy=true;paint();
+    try{
+     let status;
+     if(scope==='guest')status=(await buyGuest(localStorage,scope,id,navigator.locks)).status;
+     else{
+      await cloudEnsureToken();if(scopeNow()!==scope)throw Error('アカウントが変わりました');
+      const result=await cloudRequest('/rest/v1/rpc/pq_buy_expedition_item',{method:'POST',body:JSON.stringify({p_item:id})});
+      if(scopeNow()!==scope)throw Error('アカウントが変わりました');
+      status=result?.status;
+      if(!['purchased','duplicate','insufficient'].includes(status))throw Error('購入結果が不明です。購入履歴を同期してください');
+      await refreshPurchases(scope);
+     }
+     if(scopeNow()===scope)shopMessage=({purchased:'🎉 '+item.name+' を獲得！',duplicate:'すでに所持しています',insufficient:'星晶石が不足しています。ログイン中は先に星晶石を同期してね。'})[status]||'購入できませんでした';
+    }catch(e){if(scopeNow()===scope)shopMessage='購入確認：'+e.message+'。クラウド購入の場合は履歴を同期してください。';}
+    finally{shopBusy=false;paint();}
+   }
+   const catalog=add(shop,'div','','pq9-grid');
+   for(const [id,item] of Object.entries(SHOP)){
+    const card=add(catalog,'div','','pq9-route');
+    add(card,'div',item.icon,'pq9-fighter-icon');add(card,'strong',item.name);
+    add(card,'p',item.type+' ｜ 💎 '+item.cost,'pq9-note');add(card,'p',item.description,'pq9-note');
+    const got=owned.includes(id),button=add(card,'button',got?'獲得済み':shopBusy?'処理中':'交換する');button.type='button';
+    button.disabled=got||shopBusy||!!storageError||!!shopError||(activeScope==='guest'&&(!w||w.balance<item.cost));button.onclick=()=>buy(id);
+    if(got){const eq=add(card,'button',display===id?'展示解除':'遠征に展示');eq.type='button';eq.onclick=()=>{if(scopeNow()!==activeScope)return;try{setDisplay(localStorage,activeScope,readOwned(localStorage,activeScope),display===id?null:id);}catch(e){shopMessage=e.message;}paint();};}
+   }
+   const collection=add(shop,'section','','pq9-step');add(collection,'h3','📖 遠征コレクション '+owned.length+'/'+Object.keys(SHOP).length);
+   bar(collection,owned.length,Object.keys(SHOP).length,'コレクション達成度');
+   for(const m of collectionMilestones(previewLedger,owned)){add(collection,'p',(m.done?'✓ ':'◇ ')+m.name+'　'+Math.min(m.value,m.target)+'/'+m.target,'pq9-note');}
+   add(collection,'p','長期実績は表示専用。展示設定は端末内のみ保存されます。','pq9-note');
    const grid=add(panel,'div','','pq9-grid');
    for(const route of d.routes){
     const card=add(grid,'section','','pq9-route');
@@ -468,9 +591,9 @@
   }
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
-  window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX))paint();});
+  window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
