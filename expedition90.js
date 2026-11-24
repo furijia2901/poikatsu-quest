@@ -150,6 +150,64 @@
   if(status!=='active')note(status==='lost'?'敗北…':'制限ターン終了');
   return {...b,player:p,enemy:e,turn:status==='active'?b.turn+1:b.turn,status,log:log.slice(-30)};
  }
+
+ // Phase 4: append-only reward receipts. v1 denomination is immutable.
+ // This preview uses a separate in-memory ledger, not the production save.
+ const REWARD_VALUES=Object.freeze({step1:5,step2:8,step3:12,chest:15,normal:10,boss:30,weekly:25});
+ function receiptId(week,route,kind){
+  if(!validDay(week)||new Date(week+'T00:00:00Z').getUTCDay()!==1)return null;
+  if(route==='all')return kind==='weekly'?'v1:'+week+':all:weekly':null;
+  if(!Object.hasOwn(FOES,route)||!Object.hasOwn(REWARD_VALUES,kind)||kind==='weekly')return null;
+  return 'v1:'+week+':'+route+':'+kind;
+ }
+ function receiptValue(id){
+  if(typeof id!=='string')return null;
+  const [version,week,route,kind,...extra]=id.split(':');
+  return version==='v1'&&!extra.length&&receiptId(week,route,kind)===id?REWARD_VALUES[kind]:null;
+ }
+ function emptyLedger(){return {version:1,claims:[]};}
+ function validateLedger(raw){
+  if(raw===undefined)return emptyLedger();
+  if(!raw||raw.version!==1||!Array.isArray(raw.claims)||raw.claims.length>50000||Object.keys(raw).some(k=>!['version','claims'].includes(k)))throw Error('遠征台帳の形式不正');
+  if(raw.claims.some(id=>receiptValue(id)===null))throw Error('遠征受取ID不正');
+  if(new Set(raw.claims).size!==raw.claims.length)throw Error('遠征台帳に重複ID');
+  return {version:1,claims:[...raw.claims].sort()};
+ }
+ function ledgerBalance(raw){return validateLedger(raw).claims.reduce((n,id)=>n+receiptValue(id),0);}
+ function mergeLedgers(a,b){
+  const local=validateLedger(a),remote=validateLedger(b),claims=[...new Set([...local.claims,...remote.claims])].sort();
+  return validateLedger({version:1,claims});
+ }
+ function ledgerLoss(candidate,previous){
+  const next=new Set(validateLedger(candidate).claims);
+  return validateLedger(previous).claims.filter(id=>!next.has(id));
+ }
+ function rewardOptions(d,map,battle=null){
+  const list=[];
+  const add=(route,kind,label,ready)=>list.push({id:receiptId(d.period.start,route,kind),route,kind,label,ready:!!ready,value:REWARD_VALUES[kind]});
+  for(const route of d.routes){
+   const m=map.find(x=>x.id===route.id);
+   route.steps.forEach((step,i)=>add(route.id,'step'+(i+1),route.title+'：'+step.name,step.cleared));
+   // One chest per route/week. Selecting another branch or difficulty never duplicates a receipt.
+   add(route.id,'chest',route.title+'：宝箱',m?.selected.ready);
+   for(const kind of ['normal','boss']){
+    const win=battle?.status==='won'&&battle.enemy?.hp===0&&battle.week===d.period.start&&battle.routeId===route.id&&battle.kind===kind;
+    const winMap=win?weeklyMap(d,{[route.id]:battle.branchId},battle.difficulty):null;
+    const sameBranch=winMap?.find(x=>x.id===route.id)?.selected.id===battle?.branchId;
+    add(route.id,kind,route.title+'：'+(kind==='boss'?'ボス撃破':'通常敵撃破'),win&&sameBranch&&battleEligible(d,winMap,route.id,kind));
+   }
+  }
+  add('all','weekly','全9地点攻略',d.cleared===d.total&&d.total===9);
+  return list;
+ }
+ function claimReward(raw,d,map,battle,id){
+  const ledger=validateLedger(raw);
+  if(ledger.claims.includes(id))return {ledger,credited:0,status:'duplicate'};
+  const option=rewardOptions(d,map,battle).find(x=>x.id===id&&x.ready);
+  if(!option)return {ledger,credited:0,status:'locked'};
+  const next=validateLedger({version:1,claims:[...ledger.claims,id]});
+  return {ledger:next,credited:option.value,status:'claimed'};
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -167,11 +225,11 @@
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null;
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='';
   function paint(){
    if(!panel.classList.contains('active'))return;
    const d=derive(typeof s==='undefined'?{}:s);
-   if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';battle=null;}
+   if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';battle=null;rewardMessage='';}
    const map=weeklyMap(d,choices,difficulty);
    panel.replaceChildren();
    const hero=add(panel,'section','','pq9-hero');
@@ -222,12 +280,42 @@
       const expectedBattle=battle;
       action.onclick=()=>{if(battle!==expectedBattle)return;if(period(Date.now()).start!==battle.week){paint();return;}battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
      }
-    }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'　※報酬付与なし');
+    }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'　※試験報酬のみ');
     const log=add(battleBox,'div','','pq9-note');log.setAttribute('aria-live','polite');
     for(const line of battle.log.slice(-6))add(log,'p',line);
     const exit=add(battleBox,'button',battle.status==='active'?'戦闘を中断':'戦闘結果を閉じる');exit.type='button';
     exit.onclick=()=>{if(battle.status==='active'&&!confirm('戦闘を中断しますか？'))return;battle=null;paint();};
    }
+   const rewards=add(panel,'section','','pq9-route');
+   add(rewards,'h3','💎 遠征報酬・星晶石（試験版）');
+   add(rewards,'strong','試験残高：'+ledgerBalance(previewLedger)+' 星晶石');
+   add(rewards,'p','この画面の報酬はメモリ内の試験データです。本番セーブ・クラウド・通常通貨に反映されません。再読み込みで消えます。','pq9-note');
+   const statusLine=add(rewards,'p',rewardMessage,'pq9-note');statusLine.setAttribute('role','status');
+   function receive(id){
+    const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
+    const result=claimReward(previewLedger,fresh,freshMap,battle,id);
+    previewLedger=result.ledger;
+    rewardMessage=result.status==='claimed'?'✓ 星晶石 '+result.credited+' 個を試験受取':result.status==='duplicate'?'受取済みです':'まだ条件を達成していません';
+    paint();
+   }
+   const options=rewardOptions(d,map,battle);
+   const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
+   const allBtn=add(rewards,'button','受取可能な報酬を試験受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length;
+   allBtn.onclick=()=>{
+    const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
+    let total=0;
+    for(const o of ready){const result=claimReward(previewLedger,fresh,freshMap,battle,o.id);previewLedger=result.ledger;total+=result.credited;}
+    rewardMessage='✓ 合計 '+total+' 星晶石を試験受取';paint();
+   };
+   const detail=add(rewards,'details','');add(detail,'summary','報酬一覧（'+options.filter(o=>previewLedger.claims.includes(o.id)).length+'/'+options.length+'件受取済み）');
+   for(const o of options){
+    const claimed=previewLedger.claims.includes(o.id);
+    const item=add(detail,'div','','pq9-step');
+    add(item,'p',o.label+' ／ '+o.value+' 星晶石');
+    const claim=add(item,'button',claimed?'受取済み':o.ready?'試験受取':'未解放');claim.type='button';claim.disabled=claimed||!o.ready;claim.onclick=()=>receive(o.id);
+   }
+   const history=add(rewards,'details','');add(history,'summary','試験受取履歴（'+previewLedger.claims.length+'件）');
+   for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
    const grid=add(panel,'div','','pq9-grid');
    for(const route of d.routes){
     const card=add(grid,'section','','pq9-route');
@@ -249,7 +337,7 @@
     bar(branchBox,sel.value,sel.target,sel.name);
     add(branchBox,'p',m.unlocked?'✨ '+m.event.name:'🔒 遭遇イベント');
     if(m.unlocked)add(branchBox,'p',m.event.description,'pq9-note');
-    add(branchBox,'p',(sel.ready?'🔓 ':'🔒 ')+sel.chest+(sel.ready?'（発見・報酬未実装）':'（条件達成で発見）'),'pq9-note');
+    add(branchBox,'p',(sel.ready?'🔓 ':'🔒 ')+sel.chest+(sel.ready?'（発見・試験受取可能）':'（条件達成で発見）'),'pq9-note');
     const fights=add(card,'div','','pq9-step');
     for(const kind of ['normal','boss']){
      const unlocked=battleEligible(d,map,route.id,kind),foe=FOES[route.id][kind];
@@ -273,13 +361,13 @@
      bar(item,step.value,step.target,step.name);
     }
    }
-   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。追加報酬やセーブ変更はありません。','pq9-note');
+   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。試験報酬はメモリ内のみ。本番セーブには書き込みません。','pq9-note');
    const refresh=add(panel,'button','↻ 進捗を更新');refresh.type='button';refresh.onclick=paint;
   }
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
