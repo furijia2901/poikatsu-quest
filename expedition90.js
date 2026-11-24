@@ -622,26 +622,61 @@
   if(feedback.won)add(box,'strong','🏆 VICTORY','pq10-victory');
   if(feedback.lost)add(box,'strong','戦闘終了','pq10-loss');
  }
+
+ // Fixtures are created in memory only and replace the current sandbox, never the real save.
+ function sandboxScenario(name,now=Date.now()){
+  const t=createSandbox(now);
+  if(name==='basic')return t;
+  if(name==='locked'){t.d=derive({},now);return t;}
+  if(name==='poor'){t.credit=0;return t;}
+  if(name==='growth'){
+   const week=t.d.period.start;
+   t.ledger=validateLedger({version:1,claims:ROUTES.flatMap(r=>['step1','step2','step3','chest','normal','boss'].map(k=>receiptId(week,r.id,k))).concat(receiptId(week,'all','weekly'))});
+   return t;
+  }
+  if(name==='pity'){
+   for(let i=1;i<GACHA_PITY;i++){
+    const request='00000000-0000-4000-8000-'+String(i).padStart(12,'0');
+    t.draws=drawPlan(t.ledger,t.owned,t.draws,request,9999,1,t.credit).rows;
+   }
+   return t;
+  }
+  throw Error('試験シナリオ不正');
+ }
+ function renderGrowth(parent,add,growth){
+  add(parent,'strong','Lv.'+growth.level+' ｜ '+growth.rank);
+  add(parent,'p','累計EXP '+growth.xp+' ／ '+(growth.maxed?'最大レベル到達':'次のレベルまで '+(growth.next-growth.progress)+' EXP'));
+  if(!growth.maxed){const bar=add(parent,'progress','');bar.max=growth.next;bar.value=growth.progress;bar.setAttribute('aria-label','遠征育成EXP');}
+  const grid=add(parent,'div','','pq9-grid');
+  for(const [label,value] of [['最大HP',growth.hp],['通常攻撃',growth.attack],['星脈斬',growth.skill]]){const card=add(grid,'div','','pq9-fighter');add(card,'p',label);add(card,'strong',String(value));}
+ }
  function mountSandbox(openButton){
   const dialog=document.createElement('dialog');dialog.id='pq91-sandbox';dialog.setAttribute('aria-label','遠征テストモード');
   dialog.style.cssText='width:min(760px,calc(100% - 24px));max-height:90dvh;box-sizing:border-box;overflow:auto;background:#17213b;color:#fff;border:2px solid #e8b653;border-radius:16px;padding:18px';
   document.body.append(dialog);
-  let t=createSandbox(),view='map',message='',feedback=null,codexFilter={group:'all',status:'all',rarity:'all'};
+  let t=createSandbox(),view='map',message='',feedback=null,loot=null,codexFilter={group:'all',status:'all',rarity:'all'};
   const add=(p,tag,txt,cls)=>{const e=document.createElement(tag);if(cls)e.className=cls;e.textContent=txt;p.append(e);return e;};
   function button(p,label,fn,disabled=false){const b=add(p,'button',label);b.type='button';b.disabled=disabled;b.style.cssText='min-height:44px;margin:4px;white-space:normal;max-width:100%';b.onclick=fn;return b;}
   function section(p,title){const el=add(p,'section','');el.style.cssText='padding:12px;margin:10px 0;border:1px solid #8173a8;border-radius:12px;background:#202c47';add(el,'h3',title);return el;}
   function show(text){message=text;paint();}
   function paint(){
    if(!dialog.open)return;
-   const impact=feedback;feedback=null;dialog.replaceChildren();add(dialog,'h2','🧪 Ver.10.0 遠征テストモード');
+   const impact=feedback,reward=loot;feedback=null;loot=null;dialog.replaceChildren();add(dialog,'h2','🧪 Ver.10.0 遠征テストモード');
    add(dialog,'p','試験専用・本番反映なし。通常セーブ・端末台帳・クラウドには書き込みません。閉じると試験記録は破棄されます。');
-   add(dialog,'strong','試験星晶石：'+sandboxWallet(t).balance+' 個 ／ 9/9地点仮クリア');
+   add(dialog,'strong','試験星晶石：'+sandboxWallet(t).balance+' 個 ／ '+t.d.cleared+'/9地点仮クリア');
    const growth=explorerProgress(t.ledger);add(dialog,'p','試験遠征 Lv.'+growth.level+' ／ 累計EXP '+growth.xp+' ／ '+growth.rank);
    button(dialog,'テストを終了',()=>dialog.close());
    button(dialog,'試験データをリセット',()=>{t=createSandbox();view='map';codexFilter={group:'all',status:'all',rarity:'all'};show('試験データを初期化しました');});
+   const scenarios=add(dialog,'details','');add(scenarios,'summary','🧪 テスト条件を選ぶ（試験記録を入れ替え）');
+   for(const [id,label,target] of [['basic','基本状態・1000星晶石','map'],['locked','未解放状態','map'],['growth','育成・隠しボス解放済み','growth'],['pity','UR天井直前（19連済み）','gacha'],['poor','星晶石不足（0個）','gacha']]){
+    button(scenarios,label,()=>{t=sandboxScenario(id);view=target;codexFilter={group:'all',status:'all',rarity:'all'};show('試験条件：'+label);});
+   }
+   add(scenarios,'p','条件はすべて仮データ。試験中の記録を入れ替えます。実際の残高や所持品は変わりません。');
+
    const nav=add(dialog,'div','');
-   for(const [id,label] of [['map','遠征'],['battle','戦闘'],['rewards','報酬'],['shop','ショップ'],['gacha','ガチャ'],['codex','図鑑']]){const b=button(nav,label,()=>{view=id;paint();});b.setAttribute('aria-pressed',String(view===id));}
+   for(const [id,label] of [['map','遠征'],['battle','戦闘'],['rewards','報酬'],['shop','ショップ'],['gacha','ガチャ'],['codex','図鑑'],['growth','育成']]){const b=button(nav,label,()=>{view=id;paint();});b.setAttribute('aria-pressed',String(view===id));}
    const status=add(dialog,'p',message);status.setAttribute('role','status');
+   if(reward){const card=add(dialog,'div','','pq10-test-loot');card.dataset.rarity=reward.rarity;card.style.borderColor=CHEST_RARITIES.find(r=>r.id===reward.rarity)?.color||'#b6a6e1';add(card,'strong',reward.icon+' '+reward.rarity+' '+reward.name);add(card,'p',reward.preview?'演出確認のみ・獲得なし':'試験コレクションに追加');}
    const map=weeklyMap(t.d,t.choices,t.difficulty);
    if(view==='map'){
     const cfg=section(dialog,'難易度と属性');
@@ -650,10 +685,10 @@
     const hidden=section(dialog,'🌑 虚空の裂け目');const hr=hiddenRequirements(t.d,t.ledger);for(const x of hr.requirements)add(hidden,'p',x.label+' '+x.value+'/'+x.target);
     button(hidden,'隠しボス解放条件を試す',()=>{const claims=ROUTES.flatMap(r=>['step1','step2','step3','chest','normal','boss'].map(k=>receiptId(t.d.period.start,r.id,k))).concat(receiptId(t.d.period.start,'all','weekly'));t.ledger=mergeLedgers(t.ledger,{version:1,claims});show('試験専用の解放条件を設定しました');},!!t.battle);
     button(hidden,'隠しボスに挑戦',()=>{t.battle=beginHiddenBattle(t.d,t.element,t.ledger,t.owned,t.display);view='battle';show('隠しボス戦開始');},!hr.unlocked||!!t.battle);
-    for(const route of t.d.routes){const m=map.find(x=>x.id===route.id),p=section(dialog,route.icon+' '+route.title+' 3/3');add(p,'p',m.region+' ／ '+m.event.name);
+    for(const route of t.d.routes){const m=map.find(x=>x.id===route.id),p=section(dialog,route.icon+' '+route.title+' '+route.cleared+'/3');add(p,'p',m.region+' ／ '+m.event.name);
      for(const br of m.branches)button(p,br.name+(m.selected.id===br.id?' ✓':''),()=>{t.choices[route.id]=br.id;paint();});
-     add(p,'p','宝箱：'+m.selected.chest+'（解放済み）');
-     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginExplorerBattle(t.d,map,route.id,kind,t.element,t.ledger,t.owned,t.display);view='battle';show('戦闘開始');},t.battle?.status==='active');
+     add(p,'p','宝箱：'+m.selected.chest+(m.selected.ready?'（解放済み）':'（未解放）'));
+     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginExplorerBattle(t.d,map,route.id,kind,t.element,t.ledger,t.owned,t.display);view='battle';show('戦闘開始');},!!t.battle||!battleEligible(t.d,map,route.id,kind));
     }
    }else if(view==='battle'){
     const p=section(dialog,'遠征バトル');
@@ -674,7 +709,7 @@
     const options=rewardOptions(t.d,map,t.battle,t.ledger);
     add(p,'p','受取履歴：'+t.ledger.claims.length+' / '+options.length+'件');
     for(const o of options){const got=t.ledger.claims.includes(o.id);const row=add(p,'div','');add(row,'span',o.label+' ／ ＋'+o.value+' ');
-     button(row,got?'受取済み':o.ready?'受け取る':'未解放',()=>{t=sandboxClaim(t,o.id);show((o.kind==='chest'?'🎁 宝箱開封！':'💎 報酬獲得！')+' 星晶石 ＋'+t.lastClaim+(t.lastDrop?' ／ '+t.lastDrop.rarity+' '+t.lastDrop.name:''));},got||!o.ready);
+     button(row,got?'受取済み':o.ready?'受け取る':'未解放',()=>{t=sandboxClaim(t,o.id);if(t.lastDrop)loot=t.lastDrop;show((o.kind==='chest'?'🎁 宝箱開封！':'💎 報酬獲得！')+' 星晶石 ＋'+t.lastClaim+(t.lastDrop?' ／ '+t.lastDrop.rarity+' '+t.lastDrop.name:''));},got||!o.ready);
     }
     const chests=chestCollection(t.ledger);add(p,'h3','試験宝箱コレクション '+chests.unique+'/15');
     for(const drop of chests.drops)add(p,'p',drop.icon+' '+drop.rarity+' '+drop.name);
@@ -682,8 +717,13 @@
    }else if(view==='gacha'){
     const p=section(dialog,'試験限定召喚'),summary=gachaSummary(t.draws);
     add(p,'p','1回20星晶石 ／ URまであと最大 '+summary.remaining+' 回 ／ 星片 '+summary.fragments);
-    button(p,'試験召喚（20星晶石）',()=>{const result=drawPlan(t.ledger,t.owned,t.draws,crypto.randomUUID(),secureRandom(10000),1+secureRandom(2),t.credit);if(result.status==='drawn'){t.draws=result.rows;show('召喚成功：'+GACHA_ITEMS[result.row.item_id].join(' '));}},sandboxWallet(t).balance<20);
+    button(p,'試験召喚（20星晶石）',()=>{const result=drawPlan(t.ledger,t.owned,t.draws,crypto.randomUUID(),secureRandom(10000),1+secureRandom(2),t.credit);if(result.status==='drawn'){t.draws=result.rows;const [rarity,name,icon]=GACHA_ITEMS[result.row.item_id];loot={rarity,name,icon};show('召喚成功：'+GACHA_ITEMS[result.row.item_id].join(' '));}},sandboxWallet(t).balance<20);
     for(const row of [...t.draws].reverse().slice(0,10))add(p,'p',row.draw_no+'：'+GACHA_ITEMS[row.item_id].join(' '));
+    const previews=add(p,'details','');add(previews,'summary','レアリティ別演出を確認（消費なし）');
+    for(const rarity of CHEST_RARITIES){const item=Object.values(GACHA_ITEMS).find(x=>x[0]===rarity.id);button(previews,rarity.id+' 演出確認',()=>{loot={rarity:item[0],name:item[1],icon:item[2],preview:true};show('試験演出：'+rarity.id);});}
+   }else if(view==='growth'){
+    const p=section(dialog,'試験遠征育成');renderGrowth(p,add,explorerProgress(t.ledger));
+    add(p,'p','報酬画面で受取を行うとEXPが増加します。育成条件を選ぶとレベルアップ後の戦闘を試せます。');
    }else if(view==='codex'){
     const p=section(dialog,'試験遠征図鑑');renderCodex(p,add,expeditionCodex(t.ledger,t.owned,t.draws),codexFilter,(key,value)=>{codexFilter[key]=value;paint();});
    }else{
@@ -716,6 +756,7 @@
   style.textContent+='#expedition90 [hidden]{display:none!important}#expedition90 .pq9-menu{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,82px),1fr));gap:6px;margin:12px 0}#expedition90 .pq9-menu button{min-height:44px;white-space:normal;margin:0;padding:8px 4px}#expedition90 .pq9-menu button[aria-pressed=true]{border:1px solid #f1d292;background:#55486a;color:#fff4dc}#expedition90 .pq9-route{margin:10px 0;overflow-wrap:anywhere}#expedition90 .pq9-grid .pq9-route{margin:0}#expedition90 .pq9-route button{max-width:100%;white-space:normal;min-height:44px}#expedition90 .pq9-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse at 85% 5%,#8172b877,transparent 55%),radial-gradient(circle at 8% 90%,#2b799955,transparent 50%),linear-gradient(145deg,#202b49,#10172e)}#expedition90 .pq9-hero h2{letter-spacing:.04em}#expedition90 .pq9-mapline{border-left:2px solid #ad98dd;padding-left:12px;margin:10px 0}#expedition90 .pq9-win{border-color:#e9c779;box-shadow:inset 0 0 20px #b39b5830}#expedition90 .pq9-item-owned{border-color:#a5d9b1}#pq9-reveal{box-sizing:border-box;width:min(420px,calc(100% - 28px));max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #e9c779;border-radius:20px;padding:24px;background:radial-gradient(ellipse at 50% 0%,#64548c,#17213b 65%);color:#fff5db;text-align:center;box-shadow:0 12px 50px #0009}#pq9-reveal::backdrop{background:#050915cc}#pq9-reveal .pq9-reveal-icon{font-size:64px;margin:8px;animation:pq9-reveal .55s cubic-bezier(.2,.7,.2,1) both}#pq9-reveal button{min-height:44px;width:100%}@keyframes pq9-reveal{from{transform:scale(.6);opacity:.2}to{transform:scale(1);opacity:1}}@media(max-width:420px){#expedition90 .pq9-menu{grid-template-columns:repeat(2,minmax(0,1fr))}#expedition90 .pq9-arena{gap:6px}#expedition90 .pq9-fighter{padding:8px}}@media(prefers-reduced-motion:reduce){#pq9-reveal .pq9-reveal-icon{animation:none}}';
   style.textContent+='#expedition90 .pq10-codex-filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}#expedition90 .pq10-codex-filters label{flex:1 1 140px;min-width:0}#expedition90 .pq10-codex-filters select{width:100%;max-width:100%}#expedition90 .pq10-codex-card[data-found=false]{opacity:.75}#expedition90 .pq10-codex-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}';
   style.textContent+="\n#expedition90 [data-region=market]{--pq10-accent:#e4bc72;--pq10-a:#654622;--pq10-b:#25233a}\n#expedition90 [data-region=trail]{--pq10-accent:#87d7b3;--pq10-a:#234f48;--pq10-b:#1c293f}\n#expedition90 [data-region=citadel]{--pq10-accent:#b7a8ff;--pq10-a:#453569;--pq10-b:#1b284a}\n#expedition90 [data-region=all]{--pq10-accent:#ed9cdc;--pq10-a:#512957;--pq10-b:#20182f}\n#expedition90 .pq10-region-card,#expedition90 .pq10-map-tile,#expedition90 .pq9-arena{background:radial-gradient(ellipse at 80% 0%,var(--pq10-a,#34294b),transparent 78%),linear-gradient(155deg,var(--pq10-b,#242c42),#151c2e);border:1px solid var(--pq10-accent,#8173a8);border-radius:16px}\n#expedition90 .pq10-region-banner{display:grid;place-items:center;font-size:48px;min-height:76px;background:radial-gradient(ellipse,var(--pq10-a),transparent 80%);border-bottom:1px solid var(--pq10-accent);margin-bottom:10px}\n#expedition90 .pq10-route-map{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px}\n#expedition90 .pq10-map-tile{padding:10px;text-align:center;min-width:0}\n#expedition90 .pq10-map-tile button{width:100%;white-space:normal;background:#17213c;color:#f8fafc;border:1px solid var(--pq10-accent)}\n#expedition90 .pq10-map-nodes{display:flex;justify-content:center;gap:4px;align-items:center;margin:10px 0}\n#expedition90 .pq10-map-node{border:1px solid var(--pq10-accent);border-radius:50%;width:28px;height:28px;display:grid;place-items:center;background:#1d2539;flex-shrink:0}\n#expedition90 .pq10-map-node[data-state=cleared]{background:#345f4b;color:#f2fff5}\n#expedition90 .pq10-map-node[data-state=open]{background:#65502b;color:#fff4bd}\n#expedition90 .pq10-map-node[data-state=locked]{opacity:.65}\n#expedition90 .pq9-arena{padding:8px}\n#expedition90 .pq9-arena[data-phase=\"2\"]{border:2px solid #ed9cdc;box-shadow:inset 0 0 28px #aa54bb44}\n.pq10-impact{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;padding:10px;border-radius:12px;background:#171d36;border:1px solid #b6a6e1;margin:8px 0;overflow:hidden}\n.pq10-impact>*{display:inline-block;font-weight:700;padding:3px 8px;animation:pq10-pop .38s ease-out both}\n.pq10-hit,.pq10-victory{color:#ffe3a0}.pq10-loss{color:#ffb9bd}.pq10-heal,.pq10-defense{color:#b6f0c7}\n.pq10-awaken{flex-basis:100%;text-align:center;color:#f4b0f9;font-size:1.05rem}\n.pq10-impact[data-action=burst]{border-color:#f0cf88;background:radial-gradient(ellipse,#67532c,#292141)}\n#pq9-reveal[data-rarity=UR]{border:2px solid #fbe08a;box-shadow:0 0 42px #ffdb8d66;background:radial-gradient(ellipse at 50% 0%,#77613a,#17213b 70%)}\n#pq9-reveal[data-rarity=SSR]{border-color:#d5a4ff;box-shadow:0 0 30px #d5a4ff55}\n#pq9-reveal[data-rarity=SR]{border-color:#8ebfff}#pq9-reveal[data-rarity=R]{border-color:#8cdda5}\n@keyframes pq10-pop{0%{transform:translateY(8px) scale(.8);opacity:.35}100%{transform:none;opacity:1}}\n@media(prefers-reduced-motion:reduce){.pq10-impact>*{animation:none}}\n";
+  style.textContent+=".pq10-test-loot{padding:16px;text-align:center;border:2px solid #b6a6e1;border-radius:14px;background:radial-gradient(ellipse,#4d426c,#202940);margin:8px 0;animation:pq10-pop .38s ease-out both}.pq10-test-loot[data-rarity=UR]{background:radial-gradient(ellipse,#77613a,#17213b);box-shadow:0 0 20px #ffdb8d55}.pq10-test-loot[data-rarity=SSR]{box-shadow:0 0 16px #d5a4ff44}@media(prefers-reduced-motion:reduce){.pq10-test-loot{animation:none}}";
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
@@ -765,7 +806,7 @@
    panel.replaceChildren();
    const hero=add(panel,'section','','pq9-hero');
    add(hero,'p','VER.10.0 · STAR EXPLORER','pq9-note');
-   const testButton=add(hero,'button','🧪 遠征テストモード');testButton.type='button';testButton.onclick=()=>{if(!document.getElementById('pq91-sandbox'))mountSandbox(testButton);};
+   const testButton=add(hero,'button','🧪 遠征テストモード');testButton.type='button';testButton.id='pq10-test-open';testButton.onclick=()=>{if(!document.getElementById('pq91-sandbox'))mountSandbox(testButton);};
    add(hero,'h2','星巡り遠征');
    let display=null;try{if(!shopError)display=readDisplay(localStorage,activeScope,owned);}catch(e){shopError=e.message;}if(display)add(hero,'strong',SHOP[display].icon+' '+SHOP[display].name+'（遠征展示中）');
    add(hero,'p',d.period.start+' ～ '+d.period.end+'（日本時間）');
@@ -783,11 +824,7 @@
    const growthBox=add(panel,'section','','pq9-route');growthBox.id='pq10-growth';growthBox.hidden=view!=='growth';
    add(growthBox,'h3','✨ 遠征レベル・育成');
    if(growth){
-    add(growthBox,'strong','Lv.'+growth.level+' ｜ '+growth.rank);
-    add(growthBox,'p','累計EXP '+growth.xp+' ／ '+(growth.maxed?'最大レベル到達':'次のレベルまで '+(growth.next-growth.progress)+' EXP'));
-    if(!growth.maxed)bar(growthBox,growth.progress,growth.next,'遠征育成EXP');
-    const grid=add(growthBox,'div','','pq9-grid');
-    for(const [label,value] of [['最大HP',growth.hp],['通常攻撃',growth.attack],['星脈斬',growth.skill]]){const card=add(grid,'div','','pq9-fighter');add(card,'p',label);add(card,'strong',String(value));}
+    renderGrowth(growthBox,add,growth);
     const rules=add(growthBox,'details','');add(rules,'summary','EXP獲得条件');
     for(const [label,key] of [['第1地点','step1'],['第2地点','step2'],['第3地点','step3'],['宝箱','chest'],['通常敵','normal'],['ボス','boss'],['週間達成','weekly'],['隠しボス','hidden']])add(rules,'p',label+'：'+(key==='hidden'?HIDDEN_BOSS.xp:EXPLORER_XP[key])+' EXP');
     add(growthBox,'p','受取済みの遠征報酬から計算。星晶石を使ってもレベルは下がりません。週更新でリセットされません。同期済みの専用台帳から各端末で同じ値を計算します。戦闘開始時のレベルを使用します。','pq9-note');
@@ -1132,7 +1169,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX)||e.key?.startsWith(DRAW_PREFIX)||e.key?.startsWith(PENDING_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,beginHiddenBattle,hiddenRequirements,hiddenPhase,HIDDEN_BOSS,battleFeedback,REGION_ART,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,expeditionCodex,filterCodex,CODEX_GROUPS,GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,beginHiddenBattle,hiddenRequirements,hiddenPhase,HIDDEN_BOSS,battleFeedback,REGION_ART,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,expeditionCodex,filterCodex,CODEX_GROUPS,GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxScenario,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
