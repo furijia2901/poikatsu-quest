@@ -162,7 +162,8 @@
    '#expedition90 .pq9-route{border:1px solid #786ca6;border-radius:16px;padding:14px;background:#202c47;color:#f1efff;min-width:0}'+
    '#expedition90 .pq9-step{padding:10px 0;border-top:1px solid #ffffff24}#expedition90 .pq9-locked{opacity:.6}'+
    '#expedition90 .pq9-label{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;font-size:.9rem}'+
-   '#expedition90 progress{width:100%;height:9px;accent-color:#e9c779}#expedition90 .pq9-note{color:#c7d2e9;font-size:.85rem;line-height:1.6}';
+   '#expedition90 progress{width:100%;height:9px;accent-color:#e9c779}#expedition90 .pq9-note{color:#c7d2e9;font-size:.85rem;line-height:1.6}'+
+   '#expedition90 .pq9-arena{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 0}#expedition90 .pq9-fighter{padding:12px;border-radius:14px;text-align:center;background:linear-gradient(160deg,#344660,#20263f);min-width:0}#expedition90 .pq9-fighter p{overflow-wrap:anywhere}#expedition90 .pq9-fighter-icon{font-size:clamp(2rem,8vw,3.5rem);margin:4px}#expedition90 .pq9-intent{padding:10px;border:1px solid #6f8fae;border-radius:10px;display:block}#expedition90 .pq9-danger{border-color:#edb27e;color:#ffd5a4;background:#50352f}#expedition90 .pq9-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}#expedition90 .pq9-actions button{white-space:normal;min-height:44px;overflow-wrap:anywhere}#expedition90 .pq9-route select{max-width:100%;padding:8px;border-radius:8px}';
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
@@ -188,7 +189,8 @@
    for(const [id,def] of Object.entries(DIFFICULTIES)){const option=document.createElement('option');option.value=id;option.textContent=def.label;select.append(option);}
    select.value=difficulty;select.onchange=()=>{difficulty=select.value;paint();panel.querySelector('select')?.focus();};difficultyLabel.append(select);
    const battleBox=add(panel,'section','','pq9-route');
-   add(battleBox,'h3','⚔️ 遠征バトル');
+   battleBox.id='pq9-battle';
+   const battleTitle=add(battleBox,'h3','⚔️ 遠征バトル');battleTitle.tabIndex=-1;
    if(!battle){
     add(battleBox,'p','最初の地点を攻略すると番兵戦、全3地点と分岐条件を達成するとボス戦が解放。専用ステータスで挑戦できます。','pq9-note');
     const elLabel=add(battleBox,'label','使用属性　');
@@ -199,20 +201,26 @@
    }else{
     add(battleBox,'p',battle.enemy.icon+' '+battle.enemy.name+' ／ '+DIFFICULTIES[battle.difficulty].label+' ／ '+ELEMENTS[battle.enemy.element]);
     add(battleBox,'strong','TURN '+battle.turn+' / 30');
-    add(battleBox,'p','自分 HP '+battle.player.hp+'/'+battle.player.maxHp+' ｜ '+ELEMENTS[battle.player.element]+' ｜ MP '+battle.player.mp+'/'+battle.player.maxMp+' ｜ 薬 '+battle.player.potions);
-    bar(battleBox,battle.player.hp,battle.player.maxHp,'プレイヤーHP');
-    add(battleBox,'p','敵 HP '+battle.enemy.hp+'/'+battle.enemy.maxHp);
-    bar(battleBox,battle.enemy.hp,battle.enemy.maxHp,'敵HP');
+    const arena=add(battleBox,'div','','pq9-arena');
+    const heroCard=add(arena,'div','','pq9-fighter'),enemyCard=add(arena,'div','','pq9-fighter');
+    add(heroCard,'div','⚔️','pq9-fighter-icon');add(heroCard,'strong','遠征冒険者');
+    add(heroCard,'p','HP '+battle.player.hp+'/'+battle.player.maxHp);
+    bar(heroCard,battle.player.hp,battle.player.maxHp,'プレイヤーHP');
+    add(heroCard,'p',ELEMENTS[battle.player.element]+'属性 ｜ MP '+battle.player.mp+'/'+battle.player.maxMp+' ｜ 薬 '+battle.player.potions,'pq9-note');
+    add(enemyCard,'div',battle.enemy.icon,'pq9-fighter-icon');add(enemyCard,'strong',battle.enemy.name);
+    add(enemyCard,'p','HP '+battle.enemy.hp+'/'+battle.enemy.maxHp);
+    bar(enemyCard,battle.enemy.hp,battle.enemy.maxHp,'敵HP');
+    add(enemyCard,'p',ELEMENTS[battle.enemy.element]+'属性','pq9-note');
     if(battle.status==='active'){
      const intent=enemyIntent(battle);
      const expected=Math.max(1,Math.round(intent.damage*affinity(battle.enemy.element,battle.player.element)));
-     add(battleBox,'strong',(intent.special?'⚠️ 大技予告：':'次の敵行動：')+intent.name+' ／ 予想ダメージ '+expected);
-     const actions=add(battleBox,'div','','pq9-label');
+     add(battleBox,'strong',(intent.special?'⚠️ 大技予告：':'次の敵行動：')+intent.name+' ／ 予想ダメージ '+expected,'pq9-intent'+(intent.special?' pq9-danger':''));
+     const actions=add(battleBox,'div','','pq9-actions');
      for(const [id,label] of Object.entries(ACTIONS)){
       const action=add(actions,'button',label+({attack:'（MP+1）',skill:'（MP2）',guard:'（MP+2）',heal:'（HP38）'}[id]));
       action.type='button';action.disabled=!canAct(battle,id);action.dataset.action=id;
       const expectedBattle=battle;
-      action.onclick=()=>{if(battle!==expectedBattle)return;battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
+      action.onclick=()=>{if(battle!==expectedBattle)return;if(period(Date.now()).start!==battle.week){paint();return;}battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
      }
     }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'　※報酬付与なし');
     const log=add(battleBox,'div','','pq9-note');log.setAttribute('aria-live','polite');
@@ -252,7 +260,7 @@
       const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
       if(fresh.period.start!==selectedWeek){paint();return;}
       battle=beginBattle(fresh,freshMap,route.id,kind,element);
-      paint();if(battle)panel.querySelector('.pq9-hero')?.nextElementSibling?.nextElementSibling?.scrollIntoView({block:'start'});
+      paint();if(battle){const target=panel.querySelector('#pq9-battle h3');target?.focus();target?.scrollIntoView({block:'start'});}
      };
     }
     for(const step of route.steps){
