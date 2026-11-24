@@ -136,6 +136,13 @@ const server=http.createServer((req,res)=>{
    const panel=page.locator('#expedition90');
    assert.equal(await panel.isVisible(),true);
    assert.equal(await panel.locator('#pq9-shop').isVisible(),false);
+   const overview=panel.locator('#pq10-map-overview');
+   assert.equal(await overview.locator('.pq10-map-tile').count(),4);
+   assert.equal(await overview.locator('.pq10-map-node').count(),9);
+   assert.equal(await overview.locator('.pq10-map-node[data-state="cleared"]').count(),3);
+   await overview.getByRole('button',{name:'🏜️ 黄金街道',exact:true}).click();
+   assert.equal(await page.evaluate(()=>document.activeElement?.dataset.pq10Route),'market');
+
    await panel.locator('[data-pq9-view="growth"]').click();
    assert.match(await panel.locator('#pq10-growth').innerText(),/Lv\.1/);
    assert.match(await panel.locator('#pq10-growth').innerText(),/累計EXP 0/);
@@ -144,6 +151,7 @@ const server=http.createServer((req,res)=>{
    const reward=panel.getByRole('button',{name:/受取可能な報酬を一括受取/});
    await reward.click();
    await page.locator('#pq9-reveal').waitFor({state:'visible'});
+   assert.match(await page.locator('#pq9-reveal').getAttribute('data-rarity'),/^(N|R|SR|SSR|UR)$/);
    await page.locator('#pq9-reveal').getByRole('button',{name:'閉じる',exact:true}).click();
    assert.equal(await reward.isDisabled(),true);
    const chestText=await panel.locator('#pq10-chests').innerText();
@@ -186,6 +194,11 @@ const server=http.createServer((req,res)=>{
    assert.equal(await panel.locator('#pq9-battle').isVisible(),true);
    await panel.getByRole('button',{name:/通常攻撃（MP/}).click();
    assert.match(await panel.locator('#pq9-battle').innerText(),/TURN 2/);
+   assert.match(await panel.locator('.pq10-impact').innerText(),/敵 −\d+ HP/);
+   assert.equal(await panel.locator('.pq10-impact .pq10-hit').evaluate(e=>getComputedStyle(e).animationName),'none');
+   assert.equal(await panel.locator('.pq9-arena').getAttribute('data-region'),'market');
+   console.log('PASS regional map, rarity reveal, actual hit feedback and reduced-motion support '+viewport.width+'px');
+
    await panel.getByRole('button',{name:'戦闘を中断',exact:true}).click();
    assert.equal(await panel.locator('#pq9-battle').isVisible(),false);
    await page.reload();await page.locator('nav[data-ui92="1"]').waitFor();await seed();
@@ -259,6 +272,8 @@ const server=http.createServer((req,res)=>{
    assert.match(await sandbox.innerText(),/虚空の星喰竜ノヴァ/);
    for(const label of ['星脈斬','防御','防御','星界奥義'])await sandbox.getByRole('button',{name:label,exact:true}).click();
    assert.match(await sandbox.innerText(),/形態 2 \/ 2/);
+   assert.match(await sandbox.locator('.pq10-impact').innerText(),/虚空覚醒/);
+
    for(const label of ['防御','防御','星界奥義','防御','星脈斬'])await sandbox.getByRole('button',{name:label,exact:true}).click();
    assert.match(await sandbox.innerText(),/勝利！/);
    await sandbox.getByRole('button',{name:'勝利報酬を受取',exact:true}).click();
