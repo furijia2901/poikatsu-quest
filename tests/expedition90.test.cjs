@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts}=require('../expedition90.js');
+const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay}=require('../expedition90.js');
 const now=Date.parse('2026-11-24T03:00:00Z');
 const date=d=>d+'T03:00:00Z';
 const session=(id,d,cat='walk')=>({id,completedAt:date(d),mission:{cat}});
@@ -92,6 +92,12 @@ check('scope isolation and independent receipt keys',()=>{const store=mockStorag
 check('unrelated keys unchanged and duplicate id stable',()=>{const store=mockStorage();store.setItem('poikatsu-quest-v01','original');persistReceipt(store,'guest',rid('market','chest'));persistReceipt(store,'guest',rid('market','chest'));assert.equal(store.length,2);assert.equal(store.getItem('poikatsu-quest-v01'),'original');});
 check('storage quota failure does not invent balance',()=>{const store=mockStorage();store.setItem=()=>{throw Error('quota');};assert.throws(()=>persistClaim(store,'guest',done,map,null,rid('market','chest')));assert.equal(ledgerBalance(readReceipts(store,'guest')),0);});
 check('corrupt persistent receipt blocks writes',()=>{const store=mockStorage();store.setItem('pq9-receipt-v1:guest:'+rid('market','chest'),'bad');assert.throws(()=>readReceipts(store,'guest'));assert.throws(()=>persistClaim(store,'guest',done,map,null,rid('trail','chest')));});
+check('catalog prices fixed and eight items',()=>{assert.equal(Object.keys(SHOP).length,8);assert.equal(SHOP.sword.cost,60);});
+check('wallet derives cost from owned receipts',()=>{const l={version:1,claims:[rid('market','boss'),rid('trail','boss')]};assert.deepEqual(wallet(l,['lantern']),{earned:60,spent:25,balance:35});});
+check('insufficient and invalid purchase rejected',()=>{assert.equal(purchasePlan(emptyLedger(),[],'sword').status,'insufficient');assert.equal(purchasePlan(emptyLedger(),[],'invalid').status,'invalid');});
+check('purchase exactly once and immutable',()=>{const l={version:1,claims:[rid('market','boss'),rid('trail','boss')]},owned=[];const p=purchasePlan(l,owned,'sword');assert.equal(p.status,'purchased');assert.equal(p.wallet.balance,0);assert.equal(purchasePlan(l,p.owned,'sword').status,'duplicate');assert.deepEqual(owned,[]);});
+check('invalid owned history rejected',()=>{assert.throws(()=>validateOwned(['sword','sword']));assert.throws(()=>validateOwned(['fake']));});
+check('collection progress and display scope',()=>{const store=mockStorage(),scope='guest';storeOwned(store,scope,'lantern');assert.deepEqual(readOwned(store,scope),['lantern']);assert.deepEqual(readOwned(store,'account:a'),[]);assert.equal(collectionMilestones(emptyLedger(),['lantern'])[0].done,true);assert.throws(()=>setDisplay(store,scope,['lantern'],'sword'));setDisplay(store,scope,['lantern'],'lantern');assert.equal(readDisplay(store,scope,['lantern']),'lantern');assert.equal(readDisplay(store,'account:a',[]),null);setDisplay(store,scope,['lantern'],null);assert.equal(readDisplay(store,scope,['lantern']),null);});
 (async()=>{
  const store=mockStorage(),scope='account:a',a=rid('market','chest'),b=rid('trail','boss');
  persistReceipt(store,scope,a);
@@ -103,5 +109,10 @@ check('corrupt persistent receipt blocks writes',()=>{const store=mockStorage();
  await assert.rejects(syncReceipts(store,scope,{read:async()=>{throw Error('network');},insert:async()=>{throw Error('unexpected');}}));assert.equal(ledgerBalance(readReceipts(store,scope)),45);n++;console.log('PASS network failure preserves local');
  const missing=rid('market','normal');persistReceipt(store,scope,missing);
  await assert.rejects(syncReceipts(store,scope,{read:adapter.read,insert:async()=>{}}));assert.equal(ledgerBalance(readReceipts(store,scope)),55);n++;console.log('PASS cloud verification failure preserves local');
+ const shopStore=mockStorage();persistReceipt(shopStore,'guest',rid('market','boss'));persistReceipt(shopStore,'guest',rid('trail','boss'));
+ let tail=Promise.resolve();const locks={request:(name,fn)=>{const next=tail.then(fn);tail=next.catch(()=>{});return next;}};
+ const purchases=await Promise.all([buyGuest(shopStore,'guest','sword',locks),buyGuest(shopStore,'guest','shield',locks)]);
+ assert.deepEqual(purchases.map(x=>x.status),['purchased','insufficient']);assert.equal(wallet(readReceipts(shopStore,'guest'),readOwned(shopStore,'guest')).balance,0);n++;console.log('PASS serialized guest purchases');
+ await assert.rejects(buyGuest(shopStore,'guest','lantern',null));await assert.rejects(buyGuest(shopStore,'account:a','lantern',locks));n++;console.log('PASS unsafe or wrong scope purchase blocked');
  console.log(n+' checks passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
