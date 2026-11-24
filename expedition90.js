@@ -152,7 +152,7 @@
  }
 
  // Phase 4: append-only reward receipts. v1 denomination is immutable.
- // This preview uses a separate in-memory ledger, not the production save.
+ // Persistent receipts are isolated from the production save.
  const REWARD_VALUES=Object.freeze({step1:5,step2:8,step3:12,chest:15,normal:10,boss:30,weekly:25});
  function receiptId(week,route,kind){
   if(!validDay(week)||new Date(week+'T00:00:00Z').getUTCDay()!==1)return null;
@@ -220,6 +220,52 @@
   const onlyLocal=ledgerLoss(b,a),onlyRemote=ledgerLoss(a,b);
   return {revision,onlyLocal,onlyRemote,merged,balance:ledgerBalance(merged),status:otherDifferent?'blocked-other-data':onlyLocal.length||onlyRemote.length?'ledger-only':'identical'};
  }
+
+ // Each receipt is an independent immutable key; different tabs cannot overwrite each other's receipts.
+ const RECEIPT_PREFIX='pq9-receipt-v1:';
+ function receiptPrefix(scope){
+  if(typeof scope!=='string'||!scope||scope.length>256)throw Error('遠征アカウント不正');
+  return RECEIPT_PREFIX+encodeURIComponent(scope)+':';
+ }
+ function readReceipts(storage,scope){
+  const prefix=receiptPrefix(scope),claims=new Set();
+  for(let i=0;i<storage.length;i++){
+   const key=storage.key(i);
+   if(typeof key!=='string'||!key.startsWith(prefix))continue;
+   const id=key.slice(prefix.length),value=storage.getItem(key);
+   if(receiptValue(id)===null||value!=='1')throw Error('端末の遠征台帳が破損しています');
+   claims.add(id);
+  }
+  return validateLedger({version:1,claims:[...claims]});
+ }
+ function persistReceipt(storage,scope,id){
+  if(receiptValue(id)===null)throw Error('受取ID不正');
+  const key=receiptPrefix(scope)+id,old=storage.getItem(key);
+  if(old!==null&&old!=='1')throw Error('受取記録が破損しています');
+  if(old===null)storage.setItem(key,'1');
+  if(storage.getItem(key)!=='1')throw Error('遠征報酬の保存確認に失敗');
+  return readReceipts(storage,scope);
+ }
+ function persistClaim(storage,scope,d,map,battle,id){
+  const ledger=readReceipts(storage,scope),result=claimReward(ledger,d,map,battle,id);
+  if(result.status!=='claimed')return result;
+  return {...result,ledger:persistReceipt(storage,scope,id)};
+ }
+ // Remote receipts live in a dedicated append-only table, not quest_saves.
+ // Never import guest receipts into a signed-in account automatically.
+ async function syncReceipts(storage,scope,adapter){
+  if(!scope.startsWith('account:'))throw Error('ログインが必要です');
+  const before=readReceipts(storage,scope);
+  const remote=validateLedger(await adapter.read());
+  const merged=mergeLedgers(before,remote);
+  for(const id of remote.claims)persistReceipt(storage,scope,id);
+  const missing=ledgerLoss(remote,merged);
+  if(missing.length)await adapter.insert(missing);
+  const verified=validateLedger(await adapter.read());
+  if(ledgerLoss(verified,merged).length)throw Error('クラウド受取履歴の照合失敗。端末の記録は保持しています');
+  for(const id of verified.claims)persistReceipt(storage,scope,id);
+  return readReceipts(storage,scope);
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -237,9 +283,17 @@
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false;
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='';
+  const scopeNow=()=>typeof cloud!=='undefined'&&cloud.session?.user?.id?'account:'+cloud.session.user.id:'guest';
+  function refreshLedger(){try{previewLedger=readReceipts(localStorage,activeScope);storageError='';}catch(e){storageError=e.message;}}
+  function receiveSaved(id){
+   if(activeScope!==scopeNow()||storageError)return 0;
+   try{const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty),result=persistClaim(localStorage,activeScope,fresh,freshMap,battle,id);previewLedger=result.ledger;rewardMessage=result.status==='claimed'?'✓ 星晶石 '+result.credited+' 個を受取':result.status==='duplicate'?'受取済みです':'まだ条件を達成していません';return result.credited;}
+   catch(e){rewardMessage='受取中止：'+e.message;refreshLedger();return 0;}
+  }
   function paint(){
    if(!panel.classList.contains('active'))return;
+   const scope=scopeNow();if(scope!==activeScope){activeScope=scope;previewLedger=emptyLedger();battle=null;rewardMessage='';syncMessage='';}refreshLedger();
    const d=derive(typeof s==='undefined'?{}:s);
    if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';battle=null;rewardMessage='';}
    const map=weeklyMap(d,choices,difficulty);
@@ -290,16 +344,13 @@
       const action=add(actions,'button',label+({attack:'（MP+1）',skill:'（MP2）',guard:'（MP+2）',heal:'（HP38）'}[id]));
       action.type='button';action.disabled=!canAct(battle,id);action.dataset.action=id;
       const expectedBattle=battle;
-      action.onclick=()=>{if(battle!==expectedBattle)return;if(period(Date.now()).start!==battle.week){paint();return;}battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
+      action.onclick=()=>{if(battle!==expectedBattle||activeScope!==scopeNow())return;if(period(Date.now()).start!==battle.week){paint();return;}battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
      }
-    }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'　※試験報酬のみ');
+    }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'');
     if(battle.status==='won'){
      const id=receiptId(battle.week,battle.routeId,battle.kind),claimed=previewLedger.claims.includes(id);
-     const prize=add(battleBox,'button',claimed?'試験報酬受取済み':'勝利報酬を試験受取（'+receiptValue(id)+' 星晶石）');prize.type='button';prize.disabled=claimed;
-     prize.onclick=()=>{
-      const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty),result=claimReward(previewLedger,fresh,freshMap,battle,id);
-      previewLedger=result.ledger;rewardMessage=result.status==='claimed'?'✓ 勝利報酬 '+result.credited+' 星晶石を試験受取':'受け取れませんでした';paint();
-     };
+     const prize=add(battleBox,'button',claimed?'報酬受取済み':'勝利報酬を受取（'+receiptValue(id)+' 星晶石）');prize.type='button';prize.disabled=claimed||!!storageError;
+     prize.onclick=()=>{receiveSaved(id);paint();};
     }
     const log=add(battleBox,'div','','pq9-note');log.setAttribute('aria-live','polite');
     for(const line of battle.log.slice(-6))add(log,'p',line);
@@ -307,17 +358,11 @@
     exit.onclick=()=>{if(battle.status==='active'&&!confirm('戦闘を中断しますか？'))return;battle=null;paint();};
    }
    const rewards=add(panel,'section','','pq9-route');
-   add(rewards,'h3','💎 遠征報酬・星晶石（試験版）');
-   add(rewards,'strong','試験残高：'+ledgerBalance(previewLedger)+' 星晶石');
-   add(rewards,'p','この画面の報酬はメモリ内の試験データです。本番セーブ・クラウド・通常通貨に反映されません。再読み込みで消えます。','pq9-note');
-   const statusLine=add(rewards,'p',rewardMessage,'pq9-note');statusLine.setAttribute('role','status');
-   function receive(id){
-    const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
-    const result=claimReward(previewLedger,fresh,freshMap,battle,id);
-    previewLedger=result.ledger;
-    rewardMessage=result.status==='claimed'?'✓ 星晶石 '+result.credited+' 個を試験受取':result.status==='duplicate'?'受取済みです':'まだ条件を達成していません';
-    paint();
-   }
+   add(rewards,'h3','💎 遠征報酬・星晶石');
+   add(rewards,'strong',storageError?'残高確認不可':'所持数：'+ledgerBalance(previewLedger)+' 星晶石');
+   add(rewards,'p','星晶石は通常セーブとは別に、このブラウザに保存されます。ログイン中のアカウントとゲストの台帳は別です。クラウド同期は専用テーブルが必要です。','pq9-note');
+   const statusLine=add(rewards,'p',storageError?'⚠️ 保存停止：'+storageError:rewardMessage,'pq9-note');statusLine.setAttribute('role','status');
+   function receive(id){receiveSaved(id);paint();}
    const syncText=add(rewards,'p',syncMessage,'pq9-note');syncText.setAttribute('role','status');
    const syncBtn=add(rewards,'button',syncChecking?'クラウド診断中…':'☁️ 遠征台帳の同期診断（読取専用）');syncBtn.type='button';syncBtn.disabled=syncChecking;
    syncBtn.onclick=async()=>{
@@ -336,21 +381,16 @@
    };
    const options=rewardOptions(d,map,battle);
    const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
-   const allBtn=add(rewards,'button','受取可能な報酬を試験受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length;
-   allBtn.onclick=()=>{
-    const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
-    let total=0;
-    for(const o of ready){const result=claimReward(previewLedger,fresh,freshMap,battle,o.id);previewLedger=result.ledger;total+=result.credited;}
-    rewardMessage='✓ 合計 '+total+' 星晶石を試験受取';paint();
-   };
+   const allBtn=add(rewards,'button','受取可能な報酬を一括受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length||!!storageError;
+   allBtn.onclick=()=>{let total=0;for(const o of ready)total+=receiveSaved(o.id);rewardMessage='今回受取：合計 '+total+' 星晶石';paint();};
    const detail=add(rewards,'details','');add(detail,'summary','報酬一覧（'+options.filter(o=>previewLedger.claims.includes(o.id)).length+'/'+options.length+'件受取済み）');
    for(const o of options){
     const claimed=previewLedger.claims.includes(o.id);
     const item=add(detail,'div','','pq9-step');
     add(item,'p',o.label+' ／ '+o.value+' 星晶石');
-    const claim=add(item,'button',claimed?'受取済み':o.ready?'試験受取':'未解放');claim.type='button';claim.disabled=claimed||!o.ready;claim.onclick=()=>receive(o.id);
+    const claim=add(item,'button',claimed?'受取済み':o.ready?'受け取る':'未解放');claim.type='button';claim.disabled=claimed||!o.ready||!!storageError;claim.onclick=()=>receive(o.id);
    }
-   const history=add(rewards,'details','');add(history,'summary','試験受取履歴（'+previewLedger.claims.length+'件）');
+   const history=add(rewards,'details','');add(history,'summary','受取履歴（'+previewLedger.claims.length+'件）');
    for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
    const grid=add(panel,'div','','pq9-grid');
    for(const route of d.routes){
@@ -373,14 +413,14 @@
     bar(branchBox,sel.value,sel.target,sel.name);
     add(branchBox,'p',m.unlocked?'✨ '+m.event.name:'🔒 遭遇イベント');
     if(m.unlocked)add(branchBox,'p',m.event.description,'pq9-note');
-    add(branchBox,'p',(sel.ready?'🔓 ':'🔒 ')+sel.chest+(sel.ready?'（発見・試験受取可能）':'（条件達成で発見）'),'pq9-note');
+    add(branchBox,'p',(sel.ready?'🔓 ':'🔒 ')+sel.chest+(sel.ready?'（発見・受取可能）':'（条件達成で発見）'),'pq9-note');
     const fights=add(card,'div','','pq9-step');
     for(const kind of ['normal','boss']){
      const unlocked=battleEligible(d,map,route.id,kind),foe=FOES[route.id][kind];
      const fight=add(fights,'button',(unlocked?'⚔️ ':'🔒 ')+foe.name+(kind==='boss'?'（ボス）':''));
      fight.type='button';fight.disabled=!!battle||!unlocked;
      fight.onclick=()=>{
-      if(battle)return;
+      if(battle||activeScope!==scopeNow())return;
       const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
       if(fresh.period.start!==selectedWeek){paint();return;}
       battle=beginBattle(fresh,freshMap,route.id,kind,element);
@@ -397,13 +437,14 @@
      bar(item,step.value,step.target,step.name);
     }
    }
-   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。試験報酬はメモリ内のみ。本番セーブには書き込みません。','pq9-note');
+   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。星晶石は独立した端末台帳に保存します。通常セーブには書き込みません。','pq9-note');
    const refresh=add(panel,'button','↻ 進捗を更新');refresh.type='button';refresh.onclick=paint;
   }
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
+  window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
