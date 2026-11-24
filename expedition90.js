@@ -375,9 +375,25 @@
    dialog.addEventListener('close',()=>{dialog.remove();panel.querySelector('[data-pq9-view="'+view+'"]')?.focus();},{once:true});
    document.body.append(dialog);dialog.showModal();close.focus();
   }
+  let cloudAvailable=false,cloudProbeScope='',cloudProbeBusy=false;
+  async function probeCloud(){
+   const scope=scopeNow();if(!scope.startsWith('account:')||cloudProbeBusy)return;
+   cloudProbeBusy=true;cloudProbeScope=scope;cloudAvailable=false;paint();
+   try{
+    await cloudEnsureToken();if(scopeNow()!==scope)throw Error('アカウントが変わりました');
+    const uid=encodeURIComponent(scope.slice(8));
+    for(const [table,column] of [['pq_expedition_receipts','receipt_id'],['pq_expedition_purchases','item_id']]){
+     const rows=await cloudRequest('/rest/v1/'+table+'?user_id=eq.'+uid+'&select='+column+'&limit=1');
+     if(scopeNow()!==scope||!Array.isArray(rows))throw Error('専用台帳の確認失敗');
+    }
+    cloudAvailable=true;syncMessage='専用クラウド台帳を確認しました。星晶石と購入履歴を同期できます。';
+   }catch(e){if(scopeNow()===scope)syncMessage='専用クラウド台帳が利用できません。端末内の記録は保持します。'+e.message;}
+   finally{cloudProbeBusy=false;paint();}
+  }
+  function cloudReady(){return cloudAvailable&&cloudProbeScope===scopeNow();}
   function paint(){
    if(!panel.classList.contains('active'))return;
-   const scope=scopeNow();if(scope!==activeScope){activeScope=scope;previewLedger=emptyLedger();owned=[];battle=null;rewardMessage='';syncMessage='';shopMessage='';}refreshLedger();
+   const scope=scopeNow();if(scope!==activeScope){activeScope=scope;cloudAvailable=false;cloudProbeScope='';previewLedger=emptyLedger();owned=[];battle=null;rewardMessage='';syncMessage='';shopMessage='';}refreshLedger();
    const d=derive(typeof s==='undefined'?{}:s);
    if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';battle=null;rewardMessage='';}
    const map=weeklyMap(d,choices,difficulty);
@@ -467,9 +483,10 @@
     }catch(e){syncMessage='診断中止：'+e.message;}
     finally{syncChecking=false;paint();}
    };
-   const cloudSync=add(rewards,'button',syncChecking?'同期処理中…':'☁️ 星晶石を同期（専用台帳）');cloudSync.type='button';cloudSync.disabled=syncChecking||!!storageError||!activeScope.startsWith('account:');
+   const probe=add(rewards,'button',cloudProbeBusy?'専用DB確認中…':'☁️ 遠征クラウドの利用可否を確認');probe.type='button';probe.disabled=cloudProbeBusy||syncChecking||!activeScope.startsWith('account:');probe.onclick=probeCloud;
+   const cloudSync=add(rewards,'button',syncChecking?'同期処理中…':'☁️ 星晶石を同期（専用台帳）');cloudSync.type='button';cloudSync.disabled=syncChecking||!!storageError||!cloudReady();
    cloudSync.onclick=async()=>{
-    if(syncChecking||storageError||activeScope!==scopeNow()||!activeScope.startsWith('account:'))return;
+    if(syncChecking||storageError||activeScope!==scopeNow()||!cloudReady())return;
     const scope=activeScope,uid=scope.slice(8);
     const check=()=>{if(scopeNow()!==scope)throw Error('アカウントが変わりました');};
     const table='/rest/v1/pq_expedition_receipts';
@@ -511,6 +528,7 @@
    const w=storageError||shopError?null:wallet(previewLedger,owned);
    add(shop,'strong',w?'💎 利用可能（端末記録）：'+w.balance+' ／ 消費 '+w.spent:'購入履歴の確認が必要です');
    add(shop,'p','限定品は各1個のみ。武器・装備は遠征内の展示用で、通常戦闘の性能には影響しません。ゲストは端末内購入、ログイン中はクラウドで残高を確認して購入します。','pq9-note');
+   if(activeScope.startsWith('account:')&&!cloudReady()){add(shop,'p','ログイン中の交換は専用クラウド台帳確認後に利用できます。報酬メニューから確認してください。','pq9-note');const checkBtn=add(shop,'button','報酬メニューへ');checkBtn.type='button';checkBtn.onclick=()=>changeView('rewards');}
    const msg=add(shop,'p',shopError||shopMessage,'pq9-note');msg.setAttribute('role','status');
    async function refreshPurchases(scope){
     if(!scope.startsWith('account:'))throw Error('ログインが必要');
@@ -523,10 +541,10 @@
     if(readOwned(localStorage,scope).some(id=>!ids.includes(id)))throw Error('クラウド購入履歴との不一致');
     return ids;
    }
-   const refreshShop=add(shop,'button','☁️ 購入履歴を同期');refreshShop.type='button';refreshShop.disabled=shopBusy||!activeScope.startsWith('account:');
+   const refreshShop=add(shop,'button','☁️ 購入履歴を同期');refreshShop.type='button';refreshShop.disabled=shopBusy||!cloudReady();
    refreshShop.onclick=async()=>{if(shopBusy||scopeNow()!==activeScope)return;const scope=activeScope;shopBusy=true;paint();try{await refreshPurchases(scope);if(scopeNow()===scope)shopMessage='購入履歴を同期しました';}catch(e){if(scopeNow()===scope)shopMessage='同期中止：'+e.message;}finally{shopBusy=false;paint();}};
    async function buy(id){
-    if(shopBusy||storageError||shopError||scopeNow()!==activeScope)return;
+    if(shopBusy||storageError||shopError||scopeNow()!==activeScope||(activeScope!=='guest'&&!cloudReady()))return;
     const scope=activeScope,item=SHOP[id];
     if(!confirm(item.name+' を '+item.cost+' 星晶石で交換しますか？'))return;
     shopBusy=true;paint();
@@ -552,7 +570,7 @@
     add(card,'div',item.icon,'pq9-fighter-icon');add(card,'strong',item.name);
     add(card,'p',item.type+' ｜ 💎 '+item.cost,'pq9-note');add(card,'p',item.description,'pq9-note');
     const got=owned.includes(id);if(got)card.classList.add('pq9-item-owned');const button=add(card,'button',got?'獲得済み':shopBusy?'処理中':'交換する');button.type='button';
-    button.disabled=got||shopBusy||!!storageError||!!shopError||(activeScope==='guest'&&(!w||w.balance<item.cost));button.onclick=()=>buy(id);
+    button.disabled=got||shopBusy||!!storageError||!!shopError||(activeScope==='guest'?(!w||w.balance<item.cost):!cloudReady());button.onclick=()=>buy(id);
     if(got){const eq=add(card,'button',display===id?'展示解除':'遠征に展示');eq.type='button';eq.onclick=()=>{if(scopeNow()!==activeScope)return;try{setDisplay(localStorage,activeScope,readOwned(localStorage,activeScope),display===id?null:id);}catch(e){shopMessage=e.message;}paint();};}
    }
    const backupBtn=add(shop,'button','📥 遠征専用バックアップを書き出す');backupBtn.type='button';backupBtn.disabled=!!storageError||!!shopError;
