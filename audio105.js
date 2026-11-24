@@ -48,10 +48,10 @@
   function motion(){document.documentElement.dataset.pq105Motion=prefs.motion?'on':'off';}
   motion();
   function sync(){
-   const panel=main.querySelector(':scope > .panel.active');if(panel&&panel.id!==lastPanel){lastPanel=panel.id;if(prefs.motion&&!matchMedia('(prefers-reduced-motion:reduce)').matches){panel.classList.add('pq105-transition');panel.addEventListener('animationend',()=>panel.classList.remove('pq105-transition'),{once:true});}}
+   const panel=main.querySelector(':scope > .panel.active');if(panel&&panel.id!==lastPanel){const changed=!!lastPanel;lastPanel=panel.id;if(changed&&!paused&&!document.hidden&&unlocked)player.effect('transition',prefs);if(prefs.motion&&!matchMedia('(prefers-reduced-motion:reduce)').matches){panel.classList.add('pq105-transition');panel.addEventListener('animationend',()=>panel.classList.remove('pq105-transition'),{once:true});}}
    if(!paused&&!document.hidden&&unlocked&&prefs.enabled)player.music(currentScene(),prefs);else player.halt();
   }
-  async function activate(){const token=++revision;if(!prefs.enabled||paused||document.hidden)return false;const ok=await player.unlock();if(token!==revision||paused||document.hidden||!prefs.enabled){player.halt();return false;}unlocked=ok;sync();return ok;}
+  async function activate(){const token=++revision;if(!prefs.enabled||paused||document.hidden)return false;const ok=await player.unlock();if(token!==revision)return false;if(paused||document.hidden||!prefs.enabled){player.halt();return false;}unlocked=ok;sync();return ok;}
   function suspend(){revision++;unlocked=false;player.halt();}
   const observer=new MutationObserver(sync);
   for(const panel of main.querySelectorAll(':scope > .panel'))observer.observe(panel,{attributes:true,attributeFilter:['class']});
