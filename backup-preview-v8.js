@@ -47,7 +47,7 @@
    }
   }
   shape(current,data,'save',0);
-  if(data.log?.some(x=>typeof x!=='string'))issues.push('ログ形式不正');
+  if(Array.isArray(data.log)&&data.log.some(x=>typeof x!=='string'))issues.push('ログ形式不正');
   if(typeof data.classId!=='string'||!Object.hasOwn(classes,data.classId))issues.push('職業ID不正');
   if(!Number.isInteger(data.area)||data.area<0||data.area>=areas.length)issues.push('エリア不正');
   for(const k of ['hp','maxHp','attack','stage','enemyHp','enemyMax','rerolls']){
@@ -121,7 +121,7 @@
   window.addEventListener('storage',e=>{if(e.key===KEY||e.key===null){generation++;prepared=null;staged=false;exported=false;rescue.disabled=true;stage.disabled=true;safety.textContent='別タブでセーブが変更されました。再読み込みしてね。';}});
   const stage=document.createElement('button');stage.type='button';stage.textContent='復元候補を端末内の隔離領域で検証';stage.disabled=true;
   stage.addEventListener('click',()=>{
-   let stageKey,reserveKey;staged=false;refreshApply();
+   let stageKey,reserveKey,stageOwned=false,reserveOwned=false;staged=false;refreshApply();
    try{
     if(!prepared||JSON.stringify(s)!==prepared.snapshot)throw Error('端末データが変化しました。再比較してね');
     if(typeof cloud==='undefined'||cloud.busy||cloud.checking)throw Error('同期処理中は検証できません');
@@ -130,14 +130,14 @@
     const id=crypto.randomUUID();
     stageKey='pq-restore-stage-'+id;reserveKey='pq-restore-reserve-'+id;
     if(localStorage.getItem(stageKey)!==null||localStorage.getItem(reserveKey)!==null)throw Error('隔離領域の衝突');
-    localStorage.setItem(stageKey,before);
-    const store={read:()=>localStorage.getItem(stageKey),reserve:v=>localStorage.setItem(reserveKey,v),readReserved:()=>localStorage.getItem(reserveKey),write:v=>localStorage.setItem(stageKey,v)};
+    localStorage.setItem(stageKey,before);stageOwned=true;
+    const store={read:()=>localStorage.getItem(stageKey),reserve:v=>{localStorage.setItem(reserveKey,v);reserveOwned=true;},readReserved:()=>localStorage.getItem(reserveKey),write:v=>localStorage.setItem(stageKey,v)};
     const result=restoreTransaction(store,before,prepared.candidate);
     if(localStorage.getItem(KEY)!==before||JSON.stringify(s)!==prepared.snapshot)throw Error('検証中に実セーブが変化しました');
     staged=true;refreshApply();safety.textContent='🟢 隔離復元検証PASS：'+result+'。実セーブとクラウドは変更していません。';
    }catch(e){safety.textContent='⚠️ 隔離復元検証中止：'+e.message;}
    finally{
-    try{if(stageKey)localStorage.removeItem(stageKey);if(reserveKey)localStorage.removeItem(reserveKey);}
+    try{if(stageOwned)localStorage.removeItem(stageKey);if(reserveOwned)localStorage.removeItem(reserveKey);}
     catch(e){staged=false;refreshApply();safety.textContent+='／隔離領域の削除に失敗しました。';}
    }
   });
@@ -169,8 +169,9 @@
     if(history?.some(x=>!x?.id)||history&&new Set(history.map(x=>String(x.id))).size!==history.length)
      throw Error('バックアップのクリア履歴IDが欠落・重複しています');
     if(JSON.stringify(s)!==before)throw Error('比較中に端末セーブが変更されました。再試行してね');
-    const r=compare(current,data);
     const result=restorePreparation(current,parsed);
+    if(result.issues.length){safety.textContent='復元準備：要確認 — '+result.issues.join('／');output.textContent='不正または未対応のデータです。セーブは変更していません。';return;}
+    const r=compare(current,data);
     safety.textContent=result.issues.length?'復元準備：要確認 — '+result.issues.join('／'):result.identical?'復元準備：一致のため不要':'復元準備：基本チェック通過。完全な復元可能性は未保証です。';
     if(!result.issues.length&&!result.identical){prepared={...result,candidate:clone(data)};rescue.disabled=false;stage.disabled=false;}
     output.textContent=(r.identical?'🟢 一致：復元不要':'⚠️ 差分あり：自動復元は禁止')+
