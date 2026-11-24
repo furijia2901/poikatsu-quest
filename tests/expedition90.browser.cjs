@@ -287,6 +287,31 @@ const server=http.createServer((req,res)=>{
 
    await sandbox.getByRole('button',{name:'試験データをリセット',exact:true}).click();
    assert.match(await sandbox.innerText(),/1000 個/);
+
+   async function scenario(label){
+    await sandbox.getByText('🧪 テスト条件を選ぶ（試験記録を入れ替え）',{exact:true}).click();
+    await sandbox.getByRole('button',{name:label,exact:true}).click();
+   }
+   await scenario('未解放状態');
+   assert.match(await sandbox.innerText(),/0\/9地点仮クリア/);
+   assert.equal(await sandbox.getByRole('button',{name:'黄金の番兵',exact:true}).isDisabled(),true);
+   await scenario('星晶石不足（0個）');
+   assert.equal(await sandbox.getByRole('button',{name:'試験召喚（20星晶石）',exact:true}).isDisabled(),true);
+   await scenario('育成・隠しボス解放済み');
+   assert.match(await sandbox.innerText(),/Lv\.5/);
+   assert.match(await sandbox.innerText(),/累計EXP 655/);
+   await scenario('UR天井直前（19連済み）');
+   assert.match(await sandbox.innerText(),/URまであと最大 1 回/);
+   await sandbox.getByRole('button',{name:'試験召喚（20星晶石）',exact:true}).click();
+   assert.equal(await sandbox.locator('.pq10-test-loot').getAttribute('data-rarity'),'UR');
+   assert.match(await sandbox.innerText(),/URまであと最大 20 回/);
+   await sandbox.getByText('レアリティ別演出を確認（消費なし）',{exact:true}).click();
+   const beforePreview=await sandbox.locator('strong').first().innerText();
+   await sandbox.getByRole('button',{name:'SSR 演出確認',exact:true}).click();
+   assert.equal(await sandbox.locator('.pq10-test-loot').getAttribute('data-rarity'),'SSR');
+   assert.match(await sandbox.locator('.pq10-test-loot').innerText(),/演出確認のみ・獲得なし/);
+   assert.equal(await sandbox.locator('strong').first().innerText(),beforePreview);
+   console.log('PASS locked, insufficient, growth, pity and free rarity preview '+viewport.width+'px');
    await sandbox.getByRole('button',{name:'テストを終了',exact:true}).click();
    await sandbox.waitFor({state:'detached'});
    assert.deepEqual(await snapshot(),original,'sandbox must not change normal state or storage');
