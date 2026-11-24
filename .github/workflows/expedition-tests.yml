@@ -22,6 +22,8 @@ jobs:
       - run: node --check collection105.js
       - run: node --check inbox105.js
       - run: node --check audio105.js
+      - run: node --check testcenter105.js
+      - run: node tests/testcenter105.test.cjs
       - run: node tests/audio105.test.cjs
       - run: node tests/inbox105.test.cjs
       - run: node tests/collection105.test.cjs
