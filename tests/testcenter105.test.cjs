@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {CHECKS,setResult,tally,report}=require('../testcenter105.js');
+assert.equal(CHECKS.length,10);assert.equal(new Set(CHECKS.map(x=>x[0])).size,10);
+const a={};assert.deepEqual(tally(a),{pass:0,fail:0,pending:10});
+const b=setResult(setResult(a,'title','pass'),'home','fail');assert.deepEqual(a,{});assert.deepEqual(tally(b),{pass:1,fail:1,pending:8});
+assert.deepEqual(setResult(b,'invalid','pass'),b);assert.deepEqual(setResult(b,'title','invalid'),b);
+assert.match(report(b),/1\. タイトル・起動：PASS/);assert.match(report(b),/2\. 星灯のロビー：FAIL/);
+assert.equal(report(b).split('\n').length,11);
+const code=fs.readFileSync('testcenter105.js','utf8');assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(code));
+assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(code));
+console.log('PASS test center checklist, report, reset and isolation');
