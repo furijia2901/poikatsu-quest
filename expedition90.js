@@ -525,11 +525,61 @@
   if(!Object.hasOwn(SHOP,id)||t.owned.includes(id)||sandboxWallet(t).balance<SHOP[id].cost)return t;
   return {...t,owned:validateOwned([...t.owned,id])};
  }
+
+ // Collection is a read-only projection of the three immutable ledgers.
+ const CODEX_GROUPS=Object.freeze({gear:'遠征装備',chest:'地域の宝物',gacha:'限定召喚',enemy:'討伐記録'});
+ function expeditionCodex(ledger,owned,draws){
+  const claims=validateLedger(ledger).claims,items=validateOwned(owned),chests=chestCollection(ledger),summons=gachaSummary(draws);
+  const entries=[];
+  const add=(group,id,name,icon,count,detail,rarity=null)=>entries.push({group,id,name,icon,count,detail,rarity,found:count>0});
+  for(const [id,item] of Object.entries(SHOP))add('gear','gear:'+id,item.name,item.icon,items.includes(id)?1:0,EXPLORER_GEAR[id].label+' ／ ショップ '+item.cost+'星晶石');
+  for(const route of ROUTES)CHEST_ITEMS[route.id].forEach(([id,name,icon],i)=>add('chest','chest:'+id,name,icon,chests.counts[id]||0,route.title+'の宝箱',CHEST_RARITIES[i].id));
+  for(const [id,[rarity,name,icon]] of Object.entries(GACHA_ITEMS))add('gacha','gacha:'+id,name,icon,summons.counts[id]||0,'星界遠征限定召喚',rarity);
+  const wins={};
+  for(const id of claims){const [,week,route,kind]=id.split(':');if(kind==='normal'||kind==='boss'){const key=route+':'+kind;wins[key]=(wins[key]||0)+1;}}
+  for(const route of ROUTES)for(const kind of ['normal','boss']){
+   const foe=FOES[route.id][kind];add('enemy','enemy:'+route.id+':'+kind,foe.name,foe.icon,wins[route.id+':'+kind]||0,route.title+' ／ '+(kind==='boss'?'ボス':'通常敵')+' ／ '+ELEMENTS[foe.element]+'属性');
+  }
+  const groups=Object.fromEntries(Object.keys(CODEX_GROUPS).map(key=>{const rows=entries.filter(x=>x.group===key);return [key,{found:rows.filter(x=>x.found).length,total:rows.length}];}));
+  return {entries,groups,found:entries.filter(x=>x.found).length,total:entries.length,fragments:summons.fragments};
+ }
+ function filterCodex(codex,group='all',status='all',rarity='all'){
+  return codex.entries.filter(x=>(group==='all'||x.group===group)&&(status==='all'||(status==='found'?x.found:!x.found))&&(rarity==='all'||x.rarity===rarity));
+ }
+ function renderCodex(parent,add,model,state,change){
+  const bar=add(parent,'progress','');bar.max=model.total;bar.value=model.found;bar.setAttribute('aria-label','図鑑達成率');
+  add(parent,'strong','図鑑達成 '+model.found+' / '+model.total+' 種（'+Math.floor(model.found/model.total*100)+'%）');
+  const filters=add(parent,'div','','pq10-codex-filters');
+  for(const [key,label,options] of [
+   ['group','分類',[['all','すべて'],...Object.entries(CODEX_GROUPS).map(([k,v])=>[k,v+' '+model.groups[k].found+'/'+model.groups[k].total])]],
+   ['status','収集状況',[['all','すべて'],['found','発見済み'],['missing','未発見']]],
+   ['rarity','レア度',[['all','すべて'],...CHEST_RARITIES.map(x=>[x.id,x.label])]]
+  ]){
+   const l=add(filters,'label',label+' '),select=add(l,'select','');select.setAttribute('aria-label','図鑑 '+label);
+   for(const [id,name] of options){const opt=add(select,'option',name);opt.value=id;}
+   select.value=state[key];select.onchange=()=>change(key,select.value);
+  }
+  const rows=filterCodex(model,state.group,state.status,state.rarity);
+  add(parent,'p','表示 '+rows.length+' 種 ／ 重複星片 '+model.fragments,'pq9-note');
+  const grid=add(parent,'div','','pq9-grid pq10-codex-grid');
+  for(const item of rows){
+   const card=add(grid,'div','','pq9-route pq10-codex-card');card.dataset.codexId=item.id;card.dataset.found=String(item.found);
+   if(item.found)card.classList.add('pq9-item-owned');
+   const color=CHEST_RARITIES.find(r=>r.id===item.rarity)?.color;
+   if(color){card.style.borderColor=color;const badge=add(card,'strong',item.rarity);badge.style.color=color;}
+   add(card,'div',item.found?item.icon:'❔','pq9-fighter-icon');
+   add(card,'h4',item.found?item.name:'未発見');
+   add(card,'p',item.detail,'pq9-note');
+   add(card,'p',item.found?(item.group==='enemy'?'報酬受取済み '+item.count+' 回':'所持 ×'+item.count):'🔒 未発見','pq9-note');
+  }
+  if(!rows.length)add(parent,'p','条件に一致する記録はありません。','pq9-note');
+  add(parent,'p','討伐記録は勝利報酬を受け取った週を計数。再戦だけでは増えません。図鑑の閲覧による報酬・セーブ変更はありません。','pq9-note');
+ }
  function mountSandbox(openButton){
   const dialog=document.createElement('dialog');dialog.id='pq91-sandbox';dialog.setAttribute('aria-label','遠征テストモード');
   dialog.style.cssText='width:min(760px,calc(100% - 24px));max-height:90dvh;box-sizing:border-box;overflow:auto;background:#17213b;color:#fff;border:2px solid #e8b653;border-radius:16px;padding:18px';
   document.body.append(dialog);
-  let t=createSandbox(),view='map',message='';
+  let t=createSandbox(),view='map',message='',codexFilter={group:'all',status:'all',rarity:'all'};
   const add=(p,tag,txt)=>{const e=document.createElement(tag);e.textContent=txt;p.append(e);return e;};
   function button(p,label,fn,disabled=false){const b=add(p,'button',label);b.type='button';b.disabled=disabled;b.style.cssText='min-height:44px;margin:4px;white-space:normal;max-width:100%';b.onclick=fn;return b;}
   function section(p,title){const el=add(p,'section','');el.style.cssText='padding:12px;margin:10px 0;border:1px solid #8173a8;border-radius:12px;background:#202c47';add(el,'h3',title);return el;}
@@ -541,9 +591,9 @@
    add(dialog,'strong','試験星晶石：'+sandboxWallet(t).balance+' 個 ／ 9/9地点仮クリア');
    const growth=explorerProgress(t.ledger);add(dialog,'p','試験遠征 Lv.'+growth.level+' ／ 累計EXP '+growth.xp+' ／ '+growth.rank);
    button(dialog,'テストを終了',()=>dialog.close());
-   button(dialog,'試験データをリセット',()=>{t=createSandbox();view='map';show('試験データを初期化しました');});
+   button(dialog,'試験データをリセット',()=>{t=createSandbox();view='map';codexFilter={group:'all',status:'all',rarity:'all'};show('試験データを初期化しました');});
    const nav=add(dialog,'div','');
-   for(const [id,label] of [['map','遠征'],['battle','戦闘'],['rewards','報酬'],['shop','ショップ'],['gacha','ガチャ']]){const b=button(nav,label,()=>{view=id;paint();});b.setAttribute('aria-pressed',String(view===id));}
+   for(const [id,label] of [['map','遠征'],['battle','戦闘'],['rewards','報酬'],['shop','ショップ'],['gacha','ガチャ'],['codex','図鑑']]){const b=button(nav,label,()=>{view=id;paint();});b.setAttribute('aria-pressed',String(view===id));}
    const status=add(dialog,'p',message);status.setAttribute('role','status');
    const map=weeklyMap(t.d,t.choices,t.difficulty);
    if(view==='map'){
@@ -584,6 +634,8 @@
     add(p,'p','1回20星晶石 ／ URまであと最大 '+summary.remaining+' 回 ／ 星片 '+summary.fragments);
     button(p,'試験召喚（20星晶石）',()=>{const result=drawPlan(t.ledger,t.owned,t.draws,crypto.randomUUID(),secureRandom(10000),1+secureRandom(2),t.credit);if(result.status==='drawn'){t.draws=result.rows;show('召喚成功：'+GACHA_ITEMS[result.row.item_id].join(' '));}},sandboxWallet(t).balance<20);
     for(const row of [...t.draws].reverse().slice(0,10))add(p,'p',row.draw_no+'：'+GACHA_ITEMS[row.item_id].join(' '));
+   }else if(view==='codex'){
+    const p=section(dialog,'試験遠征図鑑');renderCodex(p,add,expeditionCodex(t.ledger,t.owned,t.draws),codexFilter,(key,value)=>{codexFilter[key]=value;paint();});
    }else{
     const p=section(dialog,'試験ショップ '+t.owned.length+'/8');
     for(const [id,item] of Object.entries(SHOP)){const row=section(p,item.icon+' '+item.name+' ／ '+item.cost+'星晶石');
@@ -611,11 +663,12 @@
    '#expedition90 progress{width:100%;height:9px;accent-color:#e9c779}#expedition90 .pq9-note{color:#c7d2e9;font-size:.85rem;line-height:1.6}'+
    '#expedition90 .pq9-arena{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 0}#expedition90 .pq9-fighter{padding:12px;border-radius:14px;text-align:center;background:linear-gradient(160deg,#344660,#20263f);min-width:0}#expedition90 .pq9-fighter p{overflow-wrap:anywhere}#expedition90 .pq9-fighter-icon{font-size:clamp(2rem,8vw,3.5rem);margin:4px}#expedition90 .pq9-intent{padding:10px;border:1px solid #6f8fae;border-radius:10px;display:block}#expedition90 .pq9-danger{border-color:#edb27e;color:#ffd5a4;background:#50352f}#expedition90 .pq9-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}#expedition90 .pq9-actions button{white-space:normal;min-height:44px;overflow-wrap:anywhere}#expedition90 .pq9-route select{max-width:100%;padding:8px;border-radius:8px}';
 
-  style.textContent+='#expedition90 [hidden]{display:none!important}#expedition90 .pq9-menu{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:12px 0}#expedition90 .pq9-menu button{min-height:44px;white-space:normal;margin:0;padding:8px 4px}#expedition90 .pq9-menu button[aria-pressed=true]{border:1px solid #f1d292;background:#55486a;color:#fff4dc}#expedition90 .pq9-route{margin:10px 0;overflow-wrap:anywhere}#expedition90 .pq9-grid .pq9-route{margin:0}#expedition90 .pq9-route button{max-width:100%;white-space:normal;min-height:44px}#expedition90 .pq9-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse at 85% 5%,#8172b877,transparent 55%),radial-gradient(circle at 8% 90%,#2b799955,transparent 50%),linear-gradient(145deg,#202b49,#10172e)}#expedition90 .pq9-hero h2{letter-spacing:.04em}#expedition90 .pq9-mapline{border-left:2px solid #ad98dd;padding-left:12px;margin:10px 0}#expedition90 .pq9-win{border-color:#e9c779;box-shadow:inset 0 0 20px #b39b5830}#expedition90 .pq9-item-owned{border-color:#a5d9b1}#pq9-reveal{box-sizing:border-box;width:min(420px,calc(100% - 28px));max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #e9c779;border-radius:20px;padding:24px;background:radial-gradient(ellipse at 50% 0%,#64548c,#17213b 65%);color:#fff5db;text-align:center;box-shadow:0 12px 50px #0009}#pq9-reveal::backdrop{background:#050915cc}#pq9-reveal .pq9-reveal-icon{font-size:64px;margin:8px;animation:pq9-reveal .55s cubic-bezier(.2,.7,.2,1) both}#pq9-reveal button{min-height:44px;width:100%}@keyframes pq9-reveal{from{transform:scale(.6);opacity:.2}to{transform:scale(1);opacity:1}}@media(max-width:420px){#expedition90 .pq9-menu{grid-template-columns:repeat(2,minmax(0,1fr))}#expedition90 .pq9-arena{gap:6px}#expedition90 .pq9-fighter{padding:8px}}@media(prefers-reduced-motion:reduce){#pq9-reveal .pq9-reveal-icon{animation:none}}';
+  style.textContent+='#expedition90 [hidden]{display:none!important}#expedition90 .pq9-menu{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,82px),1fr));gap:6px;margin:12px 0}#expedition90 .pq9-menu button{min-height:44px;white-space:normal;margin:0;padding:8px 4px}#expedition90 .pq9-menu button[aria-pressed=true]{border:1px solid #f1d292;background:#55486a;color:#fff4dc}#expedition90 .pq9-route{margin:10px 0;overflow-wrap:anywhere}#expedition90 .pq9-grid .pq9-route{margin:0}#expedition90 .pq9-route button{max-width:100%;white-space:normal;min-height:44px}#expedition90 .pq9-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse at 85% 5%,#8172b877,transparent 55%),radial-gradient(circle at 8% 90%,#2b799955,transparent 50%),linear-gradient(145deg,#202b49,#10172e)}#expedition90 .pq9-hero h2{letter-spacing:.04em}#expedition90 .pq9-mapline{border-left:2px solid #ad98dd;padding-left:12px;margin:10px 0}#expedition90 .pq9-win{border-color:#e9c779;box-shadow:inset 0 0 20px #b39b5830}#expedition90 .pq9-item-owned{border-color:#a5d9b1}#pq9-reveal{box-sizing:border-box;width:min(420px,calc(100% - 28px));max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #e9c779;border-radius:20px;padding:24px;background:radial-gradient(ellipse at 50% 0%,#64548c,#17213b 65%);color:#fff5db;text-align:center;box-shadow:0 12px 50px #0009}#pq9-reveal::backdrop{background:#050915cc}#pq9-reveal .pq9-reveal-icon{font-size:64px;margin:8px;animation:pq9-reveal .55s cubic-bezier(.2,.7,.2,1) both}#pq9-reveal button{min-height:44px;width:100%}@keyframes pq9-reveal{from{transform:scale(.6);opacity:.2}to{transform:scale(1);opacity:1}}@media(max-width:420px){#expedition90 .pq9-menu{grid-template-columns:repeat(2,minmax(0,1fr))}#expedition90 .pq9-arena{gap:6px}#expedition90 .pq9-fighter{padding:8px}}@media(prefers-reduced-motion:reduce){#pq9-reveal .pq9-reveal-icon{animation:none}}';
+  style.textContent+='#expedition90 .pq10-codex-filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}#expedition90 .pq10-codex-filters label{flex:1 1 140px;min-width:0}#expedition90 .pq10-codex-filters select{width:100%;max-width:100%}#expedition90 .pq10-codex-card[data-found=false]{opacity:.75}#expedition90 .pq10-codex-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}';
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='',owned=[],shopError='',shopBusy=false,shopMessage='',view='map',draws=[],drawError='',drawBusy=false,drawMessage='';
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='',owned=[],shopError='',shopBusy=false,shopMessage='',view='map',draws=[],drawError='',drawBusy=false,drawMessage='',codexFilter={group:'all',status:'all',rarity:'all'};
   const scopeNow=()=>typeof cloud!=='undefined'&&cloud.session?.user?.id?'account:'+cloud.session.user.id:'guest';
   function refreshLedger(){try{previewLedger=readReceipts(localStorage,activeScope);storageError='';}catch(e){storageError=e.message;}try{owned=readOwned(localStorage,activeScope);shopError='';}catch(e){shopError=e.message;}try{draws=readDraws(localStorage,activeScope);drawError='';}catch(e){drawError=e.message;}}
   function receiveSaved(id){
@@ -624,7 +677,7 @@
    catch(e){rewardMessage='受取中止：'+e.message;refreshLedger();return 0;}
   }
 
-  const VIEWS=[['map','🧭 遠征'],['battle','⚔️ 戦闘'],['rewards','💎 報酬'],['shop','🏪 ショップ'],['growth','✨ 遠征育成'],['gacha','🌠 召喚']];
+  const VIEWS=[['map','🧭 遠征'],['battle','⚔️ 戦闘'],['rewards','💎 報酬'],['shop','🏪 ショップ'],['growth','✨ 遠征育成'],['gacha','🌠 召喚'],['codex','📖 図鑑']];
   function changeView(id){if(!VIEWS.some(v=>v[0]===id))return;view=id;paint();}
   function reveal(icon,title,body){
    if(typeof HTMLDialogElement==='undefined'||!HTMLDialogElement.prototype.showModal)return;
@@ -671,6 +724,10 @@
    if(growth){add(hero,'strong','遠征 Lv.'+growth.level+' ｜ '+growth.rank);if(!growth.maxed)bar(hero,growth.progress,growth.next,'遠征レベル経験値');}
    const menu=add(panel,'div','','pq9-menu');menu.setAttribute('aria-label','遠征メニュー');
    for(const [id,label] of VIEWS){const b=add(menu,'button',label);b.type='button';b.dataset.pq9View=id;b.setAttribute('aria-pressed',String(view===id));b.onclick=()=>{changeView(id);panel.querySelector('[data-pq9-view="'+id+'"]')?.focus();};}
+   const codex=add(panel,'section','','pq9-route');codex.id='pq10-codex';codex.hidden=view!=='codex';
+   add(codex,'h3','📖 星巡り遠征図鑑');
+   if(storageError||shopError||drawError)add(codex,'p','台帳の確認が必要です。図鑑は安全のため表示を停止しました。','pq9-note');
+   else if(view==='codex')renderCodex(codex,add,expeditionCodex(previewLedger,owned,draws),codexFilter,(key,value)=>{codexFilter[key]=value;paint();panel.querySelector('#pq10-codex select[aria-label="図鑑 '+({group:'分類',status:'収集状況',rarity:'レア度'})[key]+'"]')?.focus();});
    const growthBox=add(panel,'section','','pq9-route');growthBox.id='pq10-growth';growthBox.hidden=view!=='growth';
    add(growthBox,'h3','✨ 遠征レベル・育成');
    if(growth){
@@ -995,7 +1052,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX)||e.key?.startsWith(DRAW_PREFIX)||e.key?.startsWith(PENDING_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,expeditionCodex,filterCodex,CODEX_GROUPS,GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
