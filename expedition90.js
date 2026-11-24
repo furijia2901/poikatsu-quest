@@ -87,6 +87,8 @@
      const label=add(item,'div','','pq9-label');
      add(label,'strong',(step.cleared?'✓ ':step.unlocked?'◇ ':'🔒 ')+step.name);
      add(label,'span',step.value+'/'+step.target);
+     const goals={quests:'ポイ活クエストを合計'+step.target+'件達成',categories:'ポイ活を'+step.target+'種類達成',outdoor:'散歩・外出クエストを合計'+step.target+'件達成',outdoorTypes:'外出クエストを'+step.target+'種類達成',balanced:'ポイ活・外出をそれぞれ'+step.target+'件達成',combinedDays:'両方を達成した日が'+step.target+'日'};
+     add(item,'p',goals[step.key],'pq9-note');
      bar(item,step.value,step.target,step.name);
     }
    }
