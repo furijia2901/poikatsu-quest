@@ -31,6 +31,28 @@
   for(const k of ['log','inventory','kills','bosses','achievements','storySeen']){
    if(!Array.isArray(data[k]))issues.push(k+' の形式不正');
   }
+  function shape(a,b,path,depth){
+   if(depth>40){issues.push('階層が深すぎます');return;}
+   if(b===null){if(a!==null&&typeof a!=='object')issues.push(path+' が null');return;}
+   if(a!==null&&typeof a!==typeof b){issues.push(path+' の型不一致');return;}
+   if(typeof b==='number'&&!Number.isFinite(b))issues.push(path+' の数値不正');
+   if(b&&typeof b==='object'){
+    if(a!==null&&Array.isArray(a)!==Array.isArray(b)){issues.push(path+' の配列形式不正');return;}
+    for(const k of Object.keys(b)){
+     if(['__proto__','constructor','prototype'].includes(k)){issues.push(path+' に禁止キー');continue;}
+     if(issues.length>=30)return;
+     if(!Array.isArray(b)&&a&&Object.hasOwn(a,k))shape(a[k],b[k],path+'.'+k,depth+1);
+     else shape(null,b[k],path+'.'+k,depth+1);
+    }
+   }
+  }
+  shape(current,data,'save',0);
+  if(data.log?.some(x=>typeof x!=='string'))issues.push('ログ形式不正');
+  if(typeof data.classId!=='string'||!Object.hasOwn(classes,data.classId))issues.push('職業ID不正');
+  if(!Number.isInteger(data.area)||data.area<0||data.area>=areas.length)issues.push('エリア不正');
+  for(const k of ['hp','maxHp','attack','stage','enemyHp','enemyMax','rerolls']){
+   if(!Number.isFinite(data[k])||data[k]<0)issues.push(k+' の値不正');
+  }
   const missing=Object.keys(current).filter(k=>!Object.hasOwn(data,k));
   if(missing.length)issues.push('現在のセーブ項目が '+missing.length+' 件欠落');
   for(const k of ['questHistory','outdoorQuest.completedSessions']){
@@ -88,17 +110,27 @@
   const wrap=document.createElement('section');wrap.id='pq-backup-preview-v8';wrap.style.marginTop='14px';
   const heading=document.createElement('strong');heading.textContent='🧭 第8弾：バックアップ復旧プレビュー';
   const note=document.createElement('p');note.className='cloud-note';
-  note.textContent='比較と隔離検証は読み取り専用です。実復元はログアウト・オフライン時のみ、明示確認後に実行できます。';
+  note.textContent='比較と隔離検証のみ利用できます。実復元は複数タブの書き込み対策が完了するまで停止中です。';
   const input=document.createElement('input');input.type='file';input.accept='.json,application/json';
   input.setAttribute('aria-label','比較するバックアップファイル');
   const output=document.createElement('pre');output.setAttribute('aria-live','polite');
   output.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px';
   let prepared=null, generation=0, staged=false, exported=false;
   const safety=document.createElement('p');safety.className='cloud-note';safety.setAttribute('aria-live','polite');
-  const apply=document.createElement('button');apply.type='button';apply.textContent='端末セーブを復元（ログアウト・オフライン専用）';apply.disabled=true;
-  const refreshApply=()=>{apply.disabled=!(prepared&&staged&&exported);};
+  const apply=document.createElement('button');apply.type='button';apply.textContent='端末セーブ復元（安全性検証中・無効）';apply.disabled=true;
+  const refreshApply=()=>{apply.disabled=!(liveRestoreEnabled&&prepared&&staged&&exported);};
+  // Live restore stays disabled until every writer participates in the same lock.
+  const liveRestoreEnabled=false;
+  window.addEventListener('storage',e=>{
+   if(e.key===KEY||e.key===CLOUD_SESSION_KEY||e.key===null){
+    generation++;prepared=null;staged=false;exported=false;
+    rescue.disabled=true;stage.disabled=true;apply.disabled=true;
+    safety.textContent='別タブで保存状態が変更されました。再読み込みしてから比較してください。';
+   }
+  });
   apply.addEventListener('click',()=>{
    try{
+    if(!liveRestoreEnabled)throw Error('実復元は安全性検証が完了するまで停止中です');
     if(!prepared||!staged||!exported)throw Error('退避と隔離検証が必要です');
     if(navigator.onLine||cloud.session||cloud.enabled||cloud.busy||cloud.checking||cloud.dirty||localStorage.getItem(CLOUD_SESSION_KEY))throw Error('ログアウトし、ネットワークを切断してください');
     if(!confirm('他のタブをすべて閉じ、退避JSONを保存したことを確認してください。この端末だけを復元します。'))return;
