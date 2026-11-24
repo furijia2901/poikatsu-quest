@@ -32,6 +32,23 @@ const server=http.createServer((req,res)=>{
    assert.equal(await page.locator('nav[data-ui92] button[data-tab]').count(),28);
    const navBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
    for(const g of GROUPS)for(const id of g.tabs)await gotoTab(id);
+
+   const {SCREEN_LAYOUTS}=require('../ui92.js');
+   for(const [id,def] of Object.entries(SCREEN_LAYOUTS)){
+    await gotoTab(id);
+    const screen=page.locator('#'+id);
+    assert.equal(await screen.getAttribute('data-ui92-sections'),'1',id+' section mapping');
+    const original=screen.locator(def.selector);
+    assert.equal(await original.count(),(def.keep||[]).length+def.views.flatMap(v=>v[1]).length);
+    for(let i=0;i<def.views.length;i++){
+     await screen.locator('[data-pq92-screen-choice="'+i+'"]').click();
+     const expected=new Set([...(def.keep||[]),...def.views[i][1]]);
+     for(let j=0;j<await original.count();j++)assert.equal(await original.nth(j).isVisible(),expected.has(j),id+' view '+i+' section '+j);
+    }
+    await screen.locator('[data-pq92-screen-choice="0"]').click();
+   }
+   await gotoTab('settings92');
+   console.log('PASS all composite screen views '+viewport.width+'px');
    assert.equal(await page.locator('#settings92 #cloud-panel').isVisible(),true);
    assert.equal(await page.locator('#settings92 #web-migration').isVisible(),true);
    assert.equal(await page.locator('#cloud-panel').count(),1);
