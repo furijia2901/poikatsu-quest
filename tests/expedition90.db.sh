@@ -115,3 +115,21 @@ do $$begin
 end$$;
 SQL
 echo 'PASS gacha RLS, shared wallet race, pity, idempotency and direct write protection'
+
+psql_ci <<'SQL'
+set role authenticated;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',false);
+insert into public.pq_expedition_receipts(user_id,receipt_id) values(auth.uid(),'v2:2026-11-23:all:hidden');
+insert into public.pq_expedition_receipts(user_id,receipt_id) values(auth.uid(),'v2:2026-11-23:all:hidden') on conflict do nothing;
+do $$begin
+ if (select count(*) from public.pq_expedition_receipts where receipt_id='v2:2026-11-23:all:hidden')<>1 then raise exception 'hidden duplicate';end if;
+ if public.pq_draw_expedition_item('00000000-0000-0000-0000-000000000021')->>'status'<>'drawn' then raise exception 'hidden reward missing from balance';end if;
+ if public.pq_draw_expedition_item('00000000-0000-0000-0000-000000000022')->>'status'<>'drawn' then raise exception 'hidden reward denomination wrong';end if;
+ if public.pq_draw_expedition_item('00000000-0000-0000-0000-000000000023')->>'status'<>'insufficient' then raise exception 'hidden reward double spend';end if;
+ begin
+  insert into public.pq_expedition_receipts(user_id,receipt_id) values(auth.uid(),'v1:2026-11-23:all:hidden');
+  raise exception 'invalid hidden receipt accepted';
+ exception when check_violation then null;end;
+end$$;
+SQL
+echo 'PASS hidden receipt denomination, uniqueness and shared balance'
