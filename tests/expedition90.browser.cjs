@@ -20,6 +20,11 @@ const server=http.createServer((req,res)=>{
    await page.goto(url);await page.locator('nav[data-ui92="1"]').waitFor();
    const {GROUPS}=require('../ui92.js');
    async function gotoTab(id){
+    if(id==='home'){
+     await page.locator('[data-pq92-group="home"]').click();
+     assert.equal(await page.locator('#home.panel.active').isVisible(),true,'home must open');
+     return;
+    }
     const leaf=page.locator('button[data-tab="'+id+'"]');
     if(!await leaf.isVisible()){
      const g=GROUPS.find(x=>x.tabs.includes(id));
@@ -61,7 +66,7 @@ const server=http.createServer((req,res)=>{
    assert.equal(await settings.locator('#pq-backup-preview-v8').isVisible(),true);
    assert.equal(await settings.locator('#cloud-email').isVisible(),false);
    await settings.locator('[data-pq92-settings-choice="2"]').click();
-   assert.equal(await settings.locator('#pq-recovery-preview-result').isVisible(),true);
+   assert.equal(await settings.getByRole('button',{name:'🔎 競合・復旧を診断',exact:true}).isVisible(),true);
    assert.equal(await settings.getByRole('button',{name:'🧪 遠征テストモードへ',exact:true}).isVisible(),true);
    assert.equal(await settings.locator('#cloud-status').isVisible(),true);
    await settings.locator('[data-pq92-settings-choice="0"]').click();
@@ -96,6 +101,28 @@ const server=http.createServer((req,res)=>{
    assert.equal(await page.locator('#quests.active').isVisible(),true,'legacy shortcut still works');
    assert.equal(await page.locator('[data-pq92-group="activity"]').getAttribute('aria-pressed'),'true');
    console.log('PASS all 28 UI screens, 6 categories, navigation isolation '+viewport.width+'px');
+   for(const width of [320,360,390,749,750,820,1120,1121,1280,1920]){
+    await page.setViewportSize({width,height:850});
+    await gotoTab('home');
+    assert.ok(await page.locator('.pq92-categories').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'category overflow '+width);
+    assert.ok(await home.locator('.pq92-shortcuts').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'shortcut overflow '+width);
+    await gotoTab('expedition90');
+    assert.ok(await page.locator('#expedition90').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'expedition overflow '+width);
+    await gotoTab('home');
+   }
+   await page.setViewportSize(viewport);
+   if(viewport.width<750){
+    await page.locator('[data-pq92-group="activity"]').click();
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),false);
+    await page.locator('[data-pq92-group="activity"]').click();
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),true);
+    await page.locator('#quests h2').first().click();
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),false);
+   }
+   console.log('PASS responsive widths 320–1920 and mobile dismissal');
+
    async function seed(){
     await page.evaluate(()=>{
      const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
