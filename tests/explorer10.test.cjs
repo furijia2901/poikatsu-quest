@@ -123,4 +123,17 @@ check('awakening feedback only occurs on threshold transition',()=>{
  assert.deepEqual(Object.keys(REGION_ART),['market','trail','citadel','all']);
 });
 
+
+const {sandboxScenario}=require('../expedition90.js');
+check('sandbox fixtures are isolated and cover locked, growth, insufficient and guaranteed summon',()=>{
+ const time=Date.parse('2026-11-24T03:00:00Z'),basic=sandboxScenario('basic',time),locked=sandboxScenario('locked',time),growth=sandboxScenario('growth',time),pity=sandboxScenario('pity',time),poor=sandboxScenario('poor',time);
+ assert.equal(basic.d.cleared,9);assert.equal(locked.d.cleared,0);assert.equal(beginExplorerBattle(locked.d,weeklyMap(locked.d),'market','normal','fire',locked.ledger),null);
+ assert.equal(explorerProgress(growth.ledger).level,5);assert.equal(hiddenRequirements(growth.d,growth.ledger).unlocked,true);
+ assert.equal(gachaSummary(pity.draws).remaining,1);
+ const pull=drawPlan(pity.ledger,pity.owned,pity.draws,request(1000),9999,1,pity.credit);assert.equal(pull.row.item_id,'ur1');
+ assert.equal(sandboxWallet(poor).balance,0);
+ assert.equal(drawPlan(poor.ledger,poor.owned,poor.draws,request(1001),0,1,poor.credit).status,'insufficient');
+ assert.equal(basic.draws.length,0);assert.equal(basic.ledger.claims.length,0);assert.throws(()=>sandboxScenario('unknown',time));
+});
+
 console.log(n+' explorer checks passed');
