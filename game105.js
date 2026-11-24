@@ -10,7 +10,7 @@
   {id:'updates',label:'アップデート情報',icon:'📜',target:null}
  ]);
  const NEWS=Object.freeze([
-  {title:'GAME EXPERIENCE REVOLUTION',body:'タイトル画面を刷新。今後のホーム・メニュー改善に向けた新しいゲーム体験の入り口です。'},
+  {title:'GAME EXPERIENCE REVOLUTION',body:'タイトル・ロビー・総合メニュー・プロフィール・コレクション・報酬・サウンド・テストセンターを刷新しました。'},
   {title:'STAR EXPLORER',body:'遠征育成、星界奥義、地域限定宝箱、限定召喚、遠征図鑑、隠しボスを収録。'}
  ]);
  function titleTarget(id){return TITLE_LINKS.find(x=>x.id===id)?.target??null;}
