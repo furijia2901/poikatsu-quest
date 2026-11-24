@@ -10,8 +10,69 @@
   {id:'other',label:'その他',icon:'📚',tabs:['records','story','settings92']}
  ];
  const LABELS={home:'ホーム',quests:'ポイ活クエスト',outdoor60:'散歩・外出',missions:'任務・称号',grand50:'収益・ガチャ・施設',expedition90:'星巡り遠征',adventure:'通常冒険',update20:'星界アリーナ・召喚',update17:'天空試練',update19:'星蝕編',chronicle:'星天の年代記',craft:'工房・仲間',town:'街づくり',update14:'絆・季節遺跡',update15:'星界同盟',update16:'星装・竜の秘宝',update18:'天空鍛冶・覚醒',season13:'シーズン',event30:'星降る収穫祭',event31:'祭典ガチャ',event32:'祭典探索',event36:'祭典の仲間',event37:'祭典の物語',event40:'星蝕境界戦線',event41:'境界の物語',records:'記録・境界共闘',story:'物語・実績',settings92:'設定・セーブ管理'};
+
+ // Groups use original sections/cards, not copies. A schema mismatch leaves the original screen untouched.
+ const SCREEN_LAYOUTS={
+  outdoor60:{selector:':scope > section',keep:[0],views:[['依頼',[1]],['抽選設定',[2]],['ショップ',[3]],['記録・実績',[4]]]},
+  grand50:{selector:':scope > section',keep:[0],views:[['収益台帳',[1]],['ガチャ',[2]],['施設',[3]],['シーズン',[4]]]},
+  missions:{selector:':scope > section',views:[['任務',[0]],['称号',[1]]]},
+  quests:{selector:':scope > section',views:[['クエスト',[0]],['活動記録',[1]]]},
+  adventure:{selector:':scope > section',keep:[0],views:[['戦闘',[1,2]],['属性試練',[3]],['探索',[4,5]]]},
+  craft:{selector:':scope > section',views:[['装備・工房',[0]],['仲間・編成',[1]]]},
+  update14:{selector:':scope > section',views:[['絆',[0]],['季節遺跡',[1]],['覚醒工房',[2]]]},
+  season13:{selector:':scope > section',views:[['シーズンパス',[0]],['ギルドランク',[1]],['限定召喚',[2]],['ボス',[3]]]},
+  story:{selector:':scope > section',views:[['物語',[0]],['実績',[1]]]},
+  chronicle:{selector:':scope > section',views:[['年代記',[0]],['魔王戦',[1]],['衣装',[2]],['ログイン報酬',[3]]]},
+  records:{selector:':scope > section',views:[['冒険記録',[1]],['境界共闘',[0]]]},
+  update15:{selector:'.v15-grid > .v15-card',views:[['仲間の物語',[0]],['UR召喚',[1]],['レイド',[2]],['天文台',[3]]]},
+  update16:{selector:'.v16-grid > .v16-card',views:[['戦利品',[0]],['仲間装備',[1]],['召喚',[2]],['外見',[3]]]},
+  update17:{selector:'.v17-grid > .v17-card',views:[['スキル',[0]],['レイド',[1]],['図鑑',[2]],['浮遊島',[3]]]},
+  update18:{selector:'.v18-grid > .v18-card',views:[['装備製作',[0]],['覚醒進化',[1]],['施設',[2]],['討伐報酬',[3]]]},
+  update19:{selector:'.v19-grid > .v19-card',views:[['物語',[0]],['覚醒技',[1]],['ガチャ',[2]],['古竜戦',[3]]]},
+  update20:{selector:'.v20-grid > .v20-card',views:[['戦闘・マップ',[0,1]],['召喚',[2]],['冒険者カード',[3]]]},
+  event30:{selector:'section',keep:[0],views:[['物語・ボス',[1,2]],['任務・報酬',[3,5]],['交換所',[4]]]},
+  event31:{selector:'section',keep:[0],views:[['ガチャ',[1]],['ログイン・開催情報',[2]],['コレクション',[3]]]},
+  event36:{selector:':scope > section',keep:[0],views:[['仲間',[1]],['育成',[2]],['任務・記録',[3,4]]]},
+  event37:{selector:':scope > section',keep:[0],views:[['物語',[1]],['支援技',[2]],['記録',[3]]]},
+  event40:{selector:'section',keep:[0],views:[['探索・ボス戦',[1,2,4]],['装備図鑑',[3]],['召喚・交換',[5,6]],['任務・記録',[7,8]]]},
+  event41:{selector:'section',keep:[0],views:[['物語・任務',[1,2]],['仲間・絆',[3,4]],['記録',[5]]]},
+  event32:{selector:'.ev32-layout > div > .ev32-map,.ev32-layout > div > section,.ev32-layout > div > .ev32-card,.ev32-layout > div > .ev34-panel',views:[['探索',[0,1,2,3,7]],['図鑑',[5]],['挑戦・隠しボス',[6]],['履歴',[4]]]}
+ };
+ function layoutValid(def,n){
+  const indexes=[...(def.keep||[]),...def.views.flatMap(v=>v[1])];
+  return indexes.length===n&&new Set(indexes).size===n&&indexes.every(i=>Number.isInteger(i)&&i>=0&&i<n);
+ }
+ function organizeScreens(){
+  for(const [id,def] of Object.entries(SCREEN_LAYOUTS)){
+   const panel=document.getElementById(id);if(!panel||panel.dataset.ui92Sections)continue;
+   const nodes=[...panel.querySelectorAll(def.selector)];
+   if(!layoutValid(def,nodes.length))continue;
+   const menu=document.createElement('div');menu.className='pq92-screen-nav';menu.setAttribute('aria-label','画面内メニュー');
+   const buttons=[];
+   function select(index){
+    if(!def.views[index])return;
+    panel.dataset.pq92ScreenView=String(index);
+    const show=new Set([...(def.keep||[]),...def.views[index][1]]);
+    nodes.forEach((node,i)=>{node.hidden=!show.has(i);});
+    buttons.forEach((b,i)=>b.setAttribute('aria-pressed',String(i===index)));
+   }
+   def.views.forEach(([label],i)=>{
+    const b=document.createElement('button');b.type='button';b.textContent=label;b.dataset.pq92ScreenChoice=String(i);
+    b.onclick=()=>select(i);buttons.push(b);menu.append(b);
+   });
+   panel.prepend(menu);panel.dataset.ui92Sections='1';select(0);
+   // Legacy mobile links target these same nodes, so reveal the appropriate view before scrolling.
+   if(id==='event40')for(const b of panel.querySelectorAll('.v45-quick button')){
+    const targetId=b.getAttribute('onclick')?.match(/getElementById\('([^']+)'\)/)?.[1];const target=targetId&&document.getElementById(targetId);
+    if(!target)continue;
+    const index=nodes.findIndex(n=>n===target||n.contains(target));
+    const viewIndex=def.views.findIndex(v=>v[1].includes(index));if(viewIndex<0)continue;
+    b.removeAttribute('onclick');b.onclick=()=>{select(viewIndex);target.scrollIntoView({block:'start',behavior:'smooth'});};
+   }
+  }
+ }
  function groupFor(id){return GROUPS.find(g=>g.tabs.includes(id))?.id||'other';}
- if(typeof module==='object'&&module.exports){module.exports={GROUPS,LABELS,groupFor};return;}
+ if(typeof module==='object'&&module.exports){module.exports={GROUPS,LABELS,groupFor,SCREEN_LAYOUTS,layoutValid};return;}
 
  function organizeHome(openTab){
   const home=document.getElementById('home');
@@ -78,6 +139,7 @@
    for(const [id,list] of lists)list.hidden=id!==group;
    for(const b of originals){if(b.dataset.tab===current)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
   }
+  organizeScreens();
   const selectHome=organizeHome(id=>byId.get(id)?.click());
   const originalTab=tab;
   tab=function(id){const result=originalTab.apply(this,arguments);current=id;group=groupFor(id);last.set(group,id);expanded=false;if(id==='home')selectHome?.('today');sync();return result;};
@@ -108,6 +170,12 @@
    '.pq92-icon{font-size:18px}.pq92-subheading{font-size:12px;color:#c6d5ef;padding:7px 4px;overflow-wrap:anywhere}'+
    'main>nav.tabs[data-ui92] .pq92-leaves button{min-height:42px;padding:9px 10px;font-size:13px;overflow-wrap:anywhere}'+
    'main>nav.tabs[data-ui92] [hidden]{display:none!important}'+
+   '.panel[data-ui92-sections] [hidden]{display:none!important}'+
+   '.pq92-screen-nav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;padding:7px;background:#101e35;border:1px solid #405475;border-radius:12px}'+
+   '.pq92-screen-nav button{flex:1 1 105px;min-width:0;min-height:43px;margin:0;padding:8px 6px;font-size:13px;background:#233652;border:1px solid #4a6083;overflow-wrap:anywhere}'+
+   '.pq92-screen-nav button[aria-pressed="true"]{background:#50438e;border-color:#b4a2f5}'+
+   '.panel[data-ui92-sections] :is(.v15-grid,.v16-grid,.v17-grid,.v18-grid,.v19-grid,.ev30-layout,.ev31-grid,.v40-layout,.v41-layout){grid-template-columns:minmax(0,1fr)!important}'+
+   '#update20[data-ui92-sections][data-pq92-screen-view]:not([data-pq92-screen-view="0"]) .v20-grid{grid-template-columns:minmax(0,1fr)}'+
    '#home[data-ui92-home] > [hidden]{display:none!important}'+
    '.pq92-home-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0 0 12px}'+
    '.pq92-home-nav button{min-width:0;min-height:44px;margin:0;padding:8px 5px;background:#20324e;border:1px solid #475d80;font-size:13px}'+
