@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync}=require('../expedition90.js');
+const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts}=require('../expedition90.js');
 const now=Date.parse('2026-11-24T03:00:00Z');
 const date=d=>d+'T03:00:00Z';
 const session=(id,d,cat='walk')=>({id,completedAt:date(d),mission:{cat}});
@@ -83,4 +83,25 @@ check('cloud plan legacy saves identical',()=>{const p=planLedgerSync({gold:5},{
 check('cloud plan unions disjoint receipts only',()=>{const a={gold:5,expedition90Rewards:{version:1,claims:[rid('market','chest')]}},b={gold:5,expedition90Rewards:{version:1,claims:[rid('trail','boss')]}};const before=JSON.stringify([a,b]),p=planLedgerSync(a,b,3);assert.equal(p.status,'ledger-only');assert.equal(p.balance,45);assert.equal(p.revision,3);assert.equal(p.onlyLocal.length,1);assert.equal(p.onlyRemote.length,1);assert.equal(JSON.stringify([a,b]),before);});
 check('cloud plan refuses other save differences',()=>{assert.equal(planLedgerSync({gold:1},{gold:2},2).status,'blocked-other-data');assert.equal(planLedgerSync({x:{a:1,b:2}},{x:{b:2,a:1}},2).status,'identical');});
 check('cloud plan rejects invalid revision and malformed ledger',()=>{assert.throws(()=>planLedgerSync({}, {},0));assert.throws(()=>planLedgerSync({}, {expedition90Rewards:null},1));});
-console.log(n+' checks passed');
+
+function mockStorage(){
+ const m=new Map();return {get length(){return m.size;},key:i=>[...m.keys()][i]??null,getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,String(v)),removeItem:k=>m.delete(k)};
+}
+check('persistent reward survives reconstructed ledger',()=>{const store=mockStorage();const a=persistClaim(store,'guest',done,map,null,rid('market','chest'));assert.equal(a.credited,15);assert.equal(ledgerBalance(readReceipts(store,'guest')),15);assert.equal(persistClaim(store,'guest',done,map,null,rid('market','chest')).credited,0);});
+check('scope isolation and independent receipt keys',()=>{const store=mockStorage();persistReceipt(store,'guest',rid('market','chest'));persistReceipt(store,'account:a',rid('trail','boss'));persistReceipt(store,'account:a',rid('market','chest'));assert.equal(ledgerBalance(readReceipts(store,'guest')),15);assert.equal(ledgerBalance(readReceipts(store,'account:a')),45);assert.equal(ledgerBalance(readReceipts(store,'account:b')),0);});
+check('unrelated keys unchanged and duplicate id stable',()=>{const store=mockStorage();store.setItem('poikatsu-quest-v01','original');persistReceipt(store,'guest',rid('market','chest'));persistReceipt(store,'guest',rid('market','chest'));assert.equal(store.length,2);assert.equal(store.getItem('poikatsu-quest-v01'),'original');});
+check('storage quota failure does not invent balance',()=>{const store=mockStorage();store.setItem=()=>{throw Error('quota');};assert.throws(()=>persistClaim(store,'guest',done,map,null,rid('market','chest')));assert.equal(ledgerBalance(readReceipts(store,'guest')),0);});
+check('corrupt persistent receipt blocks writes',()=>{const store=mockStorage();store.setItem('pq9-receipt-v1:guest:'+rid('market','chest'),'bad');assert.throws(()=>readReceipts(store,'guest'));assert.throws(()=>persistClaim(store,'guest',done,map,null,rid('trail','chest')));});
+(async()=>{
+ const store=mockStorage(),scope='account:a',a=rid('market','chest'),b=rid('trail','boss');
+ persistReceipt(store,scope,a);
+ const remote=new Set([b]);
+ const adapter={read:async()=>({version:1,claims:[...remote]}),insert:async ids=>ids.forEach(x=>remote.add(x))};
+ let synced=await syncReceipts(store,scope,adapter);assert.equal(ledgerBalance(synced),45);assert.equal(remote.size,2);n++;console.log('PASS cloud union');
+ synced=await syncReceipts(store,scope,adapter);assert.equal(ledgerBalance(synced),45);assert.equal(remote.size,2);n++;console.log('PASS repeated cloud sync');
+ await assert.rejects(syncReceipts(store,'guest',adapter));n++;console.log('PASS guest cannot upload');
+ await assert.rejects(syncReceipts(store,scope,{read:async()=>{throw Error('network');},insert:async()=>{throw Error('unexpected');}}));assert.equal(ledgerBalance(readReceipts(store,scope)),45);n++;console.log('PASS network failure preserves local');
+ const missing=rid('market','normal');persistReceipt(store,scope,missing);
+ await assert.rejects(syncReceipts(store,scope,{read:adapter.read,insert:async()=>{}}));assert.equal(ledgerBalance(readReceipts(store,scope)),55);n++;console.log('PASS cloud verification failure preserves local');
+ console.log(n+' checks passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});
