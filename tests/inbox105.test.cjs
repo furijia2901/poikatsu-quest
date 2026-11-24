@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {NEWS,SOURCES,fixture,claimTest,statusOf,filterNews}=require('../inbox105.js');
+const {GROUPS}=require('../ui92.js');
+assert.equal(NEWS.length,4);assert.equal(filterNews('update').length,2);assert.equal(filterNews('event').length,1);
+for(const [, ,panel] of SOURCES)assert.ok(GROUPS.some(g=>g.tabs.includes(panel)));
+const a=fixture(),b=claimTest(a,['welcome','welcome','locked','expired','received']);
+assert.equal(b.gold,100);assert.equal(b.energy,3);assert.equal(b.materials,5);assert.equal(a.gold,0);
+assert.deepEqual(claimTest(b,['welcome']),b);
+const c=claimTest(b,b.items.map(x=>x.id));assert.equal(c.gold,140);assert.equal(c.energy,6);assert.equal(c.materials,7);assert.equal(c.items.filter(x=>x.status==='ready').length,0);
+assert.deepEqual(claimTest(c,c.items.map(x=>x.id)),c);assert.equal(fixture().gold,0);
+assert.equal(statusOf(null),'unknown');assert.equal(statusOf({disabled:false,textContent:'受取'}),'ready');assert.equal(statusOf({disabled:true,textContent:'受取済み'}),'claimed');assert.equal(statusOf({disabled:true,textContent:'受取'}),'locked');
+const code=fs.readFileSync('inbox105.js','utf8');assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(code));
+assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(code));
+console.log('PASS inbox categories, native reward routes, one-time and bulk isolated claim, expiry and reset');
