@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {explorerProgress,beginExplorerBattle,beginBattle,battleStep,createSandbox,weeklyMap,receiptId,emptyLedger,EXPLORER_XP,MAX_EXPLORER_LEVEL,wallet,mergeLedgers,canAct,EXPLORER_GEAR,activeGear,incomingDamage,actionsFor}=require('../expedition90.js');
+const {explorerProgress,beginExplorerBattle,beginBattle,battleStep,createSandbox,weeklyMap,receiptId,emptyLedger,EXPLORER_XP,MAX_EXPLORER_LEVEL,wallet,mergeLedgers,canAct,EXPLORER_GEAR,activeGear,incomingDamage,actionsFor,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,sandboxClaim,sandboxWallet}=require('../expedition90.js');
 const t=createSandbox(Date.parse('2026-11-24T03:00:00Z')),week=t.d.period.start;
 const id=(route,kind)=>receiptId(week,route,kind);
 const all=['market','trail','citadel'].flatMap(r=>Object.keys(EXPLORER_XP).filter(k=>k!=='weekly').map(k=>id(r,k))).concat(id('all','weekly'));
@@ -31,5 +31,13 @@ check('burn ticks twice, then clears',()=>{const a=fight();a.combat.status={id:'
 check('frost and exposed change attack and incoming damage',()=>{const a=fight(),b=structuredClone(a);b.combat.status={id:'frost',turns:2};assert.ok(battleStep(b,'attack').enemy.hp>battleStep(a,'attack').enemy.hp);b.combat.status={id:'exposed',turns:2};assert.ok(incomingDamage(b)>incomingDamage(a));});
 check('cleanse consumes MP and removes status before enemy attack',()=>{const a=fight();assert.equal(canAct(a,'cleanse'),false);a.combat.status={id:'burn',turns:2};const b=battleStep(a,'cleanse');assert.equal(b.combat.status,null);assert.equal(b.player.mp,a.player.mp-1);assert.equal(a.player.hp-b.player.hp,incomingDamage(a,false,null));});
 check('legacy battle actions unchanged',()=>{const b=beginBattle(t.d,weeklyMap(t.d),'market','boss','water');assert.equal(Object.keys(actionsFor(b)).length,4);assert.equal(canAct(b,'burst'),false);});
+
+
+check('chest probabilities exactly cover 10000 outcomes',()=>{const counts={};for(let i=0;i<10000;i++){const r=chestRarity(i);counts[r.id]=(counts[r.id]||0)+1;}assert.deepEqual(counts,{N:5000,R:3000,SR:1500,SSR:400,UR:100});assert.throws(()=>chestRarity(-1));assert.throws(()=>chestRarity(10000));});
+check('chest catalog contains fifteen unique items',()=>{assert.equal(new Set(Object.values(CHEST_ITEMS).flat().map(x=>x[0])).size,15);assert.equal(CHEST_RARITIES.reduce((n,r)=>n+r.weight,0),10000);});
+check('drop fixed by canonical receipt, no invalid or non-chest drop',()=>{const x=id('market','chest');assert.deepEqual(chestDrop(x),chestDrop(x));assert.equal(chestDrop(id('market','boss')),null);assert.equal(chestDrop('invalid'),null);assert.equal(chestDrop(x).route,'market');assert.ok(CHEST_ITEMS.market.some(i=>i[0]===chestDrop(x).itemId));assert.ok(chestRoll(x)>=0&&chestRoll(x)<10000);});
+check('all regional rarities accessible over historical weeks',()=>{const unique=new Set();for(let i=0;i<1500;i++){const day=new Date(Date.parse(week+'T00:00:00Z')-i*7*86400000).toISOString().slice(0,10);for(const route of ['market','trail','citadel'])unique.add(chestDrop(receiptId(day,route,'chest')).itemId);}assert.equal(unique.size,15);});
+check('collection reconstructed from old receipts and merge without duplication',()=>{const a=ledger(all),b=chestCollection(a);assert.equal(b.total,3);assert.equal(b.unique,3);assert.deepEqual(chestCollection(mergeLedgers(a,a)),b);assert.equal(chestCollection(emptyLedger()).total,0);assert.throws(()=>chestCollection(ledger([all[0],all[0]])));});
+check('sandbox chest gives collectible and unchanged currency; duplicate cannot reroll',()=>{const x=id('market','chest'),a=sandboxClaim(t,x),b=sandboxClaim(a,x);assert.equal(a.lastClaim,15);assert.equal(sandboxWallet(a).balance,1015);assert.deepEqual(a.lastDrop,chestDrop(x));assert.equal(b.lastClaim,0);assert.equal(b.lastDrop,null);assert.deepEqual(chestCollection(a.ledger),chestCollection(b.ledger));assert.equal(t.ledger.claims.length,0);});
 
 console.log(n+' explorer checks passed');
