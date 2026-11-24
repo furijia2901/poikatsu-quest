@@ -1,7 +1,7 @@
 name: Star Expedition tests
 on:
   push:
-    branches: [v9-star-expedition, v92-ui-reorganization, v10-star-explorer, main]
+    branches: [v9-star-expedition, v92-ui-reorganization, v10-star-explorer, v105-game-experience, main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -17,6 +17,8 @@ jobs:
           node-version: '22'
       - run: node --check expedition90.js
       - run: node --check ui92.js
+      - run: node --check game105.js
+      - run: node tests/game105.test.cjs
       - run: node tests/ui92.test.cjs
       - run: node tests/expedition90.test.cjs
       - run: node tests/explorer10.test.cjs
