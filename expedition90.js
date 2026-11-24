@@ -124,12 +124,70 @@
   return {special,name:special?b.enemy.skill:'通常攻撃',damage:Math.round(b.enemy.atk*(special?2.15:1))};
  }
  function affinity(a,b){return ADVANTAGE[a]===b?1.3:ADVANTAGE[b]===a?0.8:1;}
+
+ // Ver.10 combat is opt-in through beginExplorerBattle. Legacy battle fixtures keep their rules.
+ const EXPLORER_ACTIONS=Object.freeze({...ACTIONS,burst:'星界奥義',cleanse:'浄化'});
+ const EXPLORER_GEAR=Object.freeze({
+  sword:{label:'通常攻撃 +4',attack:4},
+  shield:{label:'被ダメージ 15%軽減',defense:0.85},
+  cloak:{label:'状態異常の付与を防ぐ',resist:true},
+  crown:{label:'最大MP +1・初期MP +1',mp:1},
+  compass:{label:'星脈斬・星界奥義 +3',skill:3},
+  lantern:{label:'星灯の薬の回復 +10',heal:10},
+  title:{label:'防御時の被ダメージ 80%軽減',guard:0.2},
+  relic:{label:'星界奥義 +8',burst:8}
+ });
+ const STATUS_EFFECTS=Object.freeze({
+  fire:{id:'burn',label:'火傷',description:'次の2行動後にHP-5'},
+  water:{id:'frost',label:'凍傷',description:'次の2行動の攻撃威力-20%'},
+  wind:{id:'exposed',label:'風裂',description:'次の2行動の被ダメージ+15%'}
+ });
+ function actionsFor(b){return b?.combat?EXPLORER_ACTIONS:ACTIONS;}
+ function activeGear(owned,id){return validateOwned(owned).includes(id)&&Object.hasOwn(EXPLORER_GEAR,id)?id:null;}
+ function battleGear(b){return EXPLORER_GEAR[b.combat?.gear]||{};}
+ function statusLabel(b){const v=b.combat?.status;return v?Object.values(STATUS_EFFECTS).find(e=>e.id===v.id)?.label+' 残り'+v.turns+'行動':'なし';}
+ function incomingDamage(b,guard=false,status=b.combat?.status){
+  const g=battleGear(b),intent=enemyIntent(b);
+  return Math.max(1,Math.round(intent.damage*affinity(b.enemy.element,b.player.element)*(g.defense??1)*(guard?(g.guard??0.3):1)*(status?.id==='exposed'?1.15:1)));
+ }
+ function enhancedStep(b,action){
+  const p={...b.player},e={...b.enemy},g=battleGear(b),log=[...b.log],intent=enemyIntent(b);
+  let effect=b.combat.status?{...b.combat.status}:null,guard=false;
+  const note=t=>log.push('T'+b.turn+' '+t);
+  const result=(status,nextEffect)=>({...b,player:p,enemy:e,combat:{...b.combat,status:nextEffect},turn:status==='active'?b.turn+1:b.turn,status,log:log.slice(-30)});
+  if(['attack','skill','burst'].includes(action)){
+   const power=action==='attack'?b.growth.attack+(g.attack||0):action==='skill'?b.growth.skill+(g.skill||0):58+Math.floor((b.growth.level-1)/2)+(g.skill||0)+(g.burst||0);
+   const damage=Math.max(1,Math.round(power*affinity(p.element,e.element)*(effect?.id==='frost'?0.8:1)));
+   e.hp=Math.max(0,e.hp-damage);
+   p.mp=action==='attack'?Math.min(p.maxMp,p.mp+1):p.mp-(action==='skill'?2:4);
+   note(EXPLORER_ACTIONS[action]+'：'+damage+'ダメージ');
+  }else if(action==='guard'){
+   guard=true;p.mp=Math.min(p.maxMp,p.mp+2);note('防御：被ダメージを'+Math.round((1-(g.guard??0.3))*100)+'%軽減・状態異常を防ぐ');
+  }else if(action==='cleanse'){
+   p.mp--;effect=null;note('浄化：状態異常解除');
+  }else{
+   p.potions--;const restored=Math.min(38+(g.heal||0),p.maxHp-p.hp);p.hp+=restored;note('星灯の薬：HP '+restored+'回復');
+  }
+  if(e.hp===0){note('勝利！');return result('won',null);}
+  const damage=incomingDamage(b,guard,effect);p.hp=Math.max(0,p.hp-damage);note(intent.name+'：'+damage+'ダメージを受けた');
+  if(effect?.id==='burn'&&p.hp>0){p.hp=Math.max(0,p.hp-5);note('火傷：HP-5');}
+  if(effect&&--effect.turns<=0){effect=null;note('状態異常が解除された');}
+  if(intent.special&&p.hp>0&&!guard&&!g.resist){
+   const next=STATUS_EFFECTS[e.element];if(next){effect={id:next.id,turns:2};note(next.label+'：'+next.description);}
+  }else if(intent.special&&(guard||g.resist))note('状態異常を防いだ');
+  const status=p.hp===0?'lost':b.turn>=30?'timeout':'active';
+  if(status!=='active')note(status==='lost'?'敗北…':'制限ターン終了');
+  return result(status,effect);
+ }
  function canAct(b,action){
-  if(!b||b.status!=='active'||!Object.hasOwn(ACTIONS,action))return false;
+  if(!b||b.status!=='active'||!Object.hasOwn(actionsFor(b),action))return false;
+  if(action==='burst')return b.player.mp>=4;
+  if(action==='cleanse')return b.player.mp>=1&&!!b.combat?.status;
   return action==='skill'?b.player.mp>=2:action==='heal'?b.player.potions>0&&b.player.hp<b.player.maxHp:true;
  }
  function battleStep(b,action){
   if(!canAct(b,action))return b;
+  if(b.combat)return enhancedStep(b,action);
   const p={...b.player},e={...b.enemy},log=[...b.log],intent=enemyIntent(b);
   const note=t=>log.push('T'+b.turn+' '+t);
   let guarding=false;
@@ -184,10 +242,11 @@
    hp:120+bonus*2,attack:21+Math.floor(bonus/3),skill:36+Math.floor(bonus/2),
    rank:level>=25?'星海の先駆者':level>=15?'星界の探検王':level>=8?'熟練探索者':level>=3?'星灯の探索者':'遠征見習い'};
  }
- function beginExplorerBattle(d,map,routeId,kind,element,ledger){
+ function beginExplorerBattle(d,map,routeId,kind,element,ledger,owned=[],display=null){
   const b=beginBattle(d,map,routeId,kind,element);if(!b)return null;
   const p=explorerProgress(ledger);
-  return {...b,player:{...b.player,hp:p.hp,maxHp:p.hp},growth:{level:p.level,attack:p.attack,skill:p.skill}};
+  const gear=activeGear(owned,display),mp=EXPLORER_GEAR[gear]?.mp||0;
+  return {...b,player:{...b.player,hp:p.hp,maxHp:p.hp,mp:b.player.mp+mp,maxMp:b.player.maxMp+mp},growth:{level:p.level,attack:p.attack,skill:p.skill},combat:{gear,status:null}};
  }
 
  function validateLedger(raw){
@@ -405,7 +464,7 @@
     for(const route of t.d.routes){const m=map.find(x=>x.id===route.id),p=section(dialog,route.icon+' '+route.title+' 3/3');add(p,'p',m.region+' ／ '+m.event.name);
      for(const br of m.branches)button(p,br.name+(m.selected.id===br.id?' ✓':''),()=>{t.choices[route.id]=br.id;paint();});
      add(p,'p','宝箱：'+m.selected.chest+'（解放済み）');
-     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginExplorerBattle(t.d,map,route.id,kind,t.element,t.ledger);view='battle';show('戦闘開始');},t.battle?.status==='active');
+     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginExplorerBattle(t.d,map,route.id,kind,t.element,t.ledger,t.owned,t.display);view='battle';show('戦闘開始');},t.battle?.status==='active');
     }
    }else if(view==='battle'){
     const p=section(dialog,'遠征バトル');
@@ -414,7 +473,8 @@
     add(p,'p','HP '+b.player.hp+'/'+b.player.maxHp+' ／ MP '+b.player.mp+'/'+b.player.maxMp+' ／ 薬 '+b.player.potions);
     add(p,'p','敵HP '+b.enemy.hp+'/'+b.enemy.maxHp);
     if(b.status==='active'){const intent=enemyIntent(b);add(p,'p','敵の予告：'+intent.name+' ／ '+intent.damage);
-     for(const [id,label] of Object.entries(ACTIONS))button(p,label,()=>{t.battle=battleStep(t.battle,id);paint();},!canAct(b,id));
+     add(p,'p','装備：'+(b.combat?.gear?SHOP[b.combat.gear].name+' ／ '+EXPLORER_GEAR[b.combat.gear].label:'なし')+' ／ 状態異常：'+statusLabel(b));
+     for(const [id,label] of Object.entries(actionsFor(b)))button(p,label,()=>{t.battle=battleStep(t.battle,id);paint();},!canAct(b,id));
     }else{add(p,'strong',b.status==='won'?'🏆 勝利！':'戦闘終了：'+b.status);
      if(b.status==='won'){const id=receiptId(b.week,b.routeId,b.kind);button(p,'勝利報酬を受取',()=>{t=sandboxClaim(t,id);show('🏆 星晶石 ＋'+t.lastClaim);},t.ledger.claims.includes(id));}
     }
@@ -544,7 +604,8 @@
     for(const [id,name] of Object.entries(ELEMENTS)){const opt=document.createElement('option');opt.value=id;opt.textContent=name;elSelect.append(opt);}
     elSelect.value=element;elSelect.onchange=()=>{element=elSelect.value;};elLabel.append(elSelect);
     const goMap=add(battleBox,'button','遠征マップで敵を選ぶ');goMap.type='button';goMap.onclick=()=>changeView('map');
-    add(battleBox,'p','相性：炎 → 風 → 水 → 炎（有利30%増／不利20%減）','pq9-note');
+    add(battleBox,'p','相性：炎 → 風 → 水 → 炎（有利30%増／不利20%減）。3ターンごとの大技は状態異常を付与。防御で予防、浄化で解除できます。','pq9-note');
+    add(battleBox,'p','展示中の遠征装備：'+(display?SHOP[display].name+' ／ '+EXPLORER_GEAR[display].label:'なし')+'。ショップで展示を選ぶと次の戦闘に反映。','pq9-note');
    }else{
     add(battleBox,'p',battle.enemy.icon+' '+battle.enemy.name+' ／ '+DIFFICULTIES[battle.difficulty].label+' ／ '+ELEMENTS[battle.enemy.element]);
     add(battleBox,'strong','TURN '+battle.turn+' / 30');
@@ -553,6 +614,8 @@
     add(heroCard,'div','⚔️','pq9-fighter-icon');add(heroCard,'strong','遠征冒険者 Lv.'+(battle.growth?.level||1));
     add(heroCard,'p','HP '+battle.player.hp+'/'+battle.player.maxHp);
     bar(heroCard,battle.player.hp,battle.player.maxHp,'プレイヤーHP');
+    add(heroCard,'p','状態異常：'+statusLabel(battle),'pq9-note');
+    if(battle.combat?.gear)add(heroCard,'p',SHOP[battle.combat.gear].name+' ｜ '+EXPLORER_GEAR[battle.combat.gear].label,'pq9-note');
     add(heroCard,'p',ELEMENTS[battle.player.element]+'属性 ｜ MP '+battle.player.mp+'/'+battle.player.maxMp+' ｜ 薬 '+battle.player.potions,'pq9-note');
     add(enemyCard,'div',battle.enemy.icon,'pq9-fighter-icon');add(enemyCard,'strong',battle.enemy.name);
     add(enemyCard,'p','HP '+battle.enemy.hp+'/'+battle.enemy.maxHp);
@@ -560,11 +623,11 @@
     add(enemyCard,'p',ELEMENTS[battle.enemy.element]+'属性','pq9-note');
     if(battle.status==='active'){
      const intent=enemyIntent(battle);
-     const expected=Math.max(1,Math.round(intent.damage*affinity(battle.enemy.element,battle.player.element)));
-     add(battleBox,'strong',(intent.special?'⚠️ 大技予告：':'次の敵行動：')+intent.name+' ／ 予想ダメージ '+expected,'pq9-intent'+(intent.special?' pq9-danger':''));
+     const expected=incomingDamage(battle);
+     add(battleBox,'strong',(intent.special?'⚠️ 大技予告：':'次の敵行動：')+intent.name+' ／ 予想ダメージ '+expected+(intent.special?' ／ '+STATUS_EFFECTS[battle.enemy.element].label:'') ,'pq9-intent'+(intent.special?' pq9-danger':''));
      const actions=add(battleBox,'div','','pq9-actions');
-     for(const [id,label] of Object.entries(ACTIONS)){
-      const action=add(actions,'button',label+({attack:'（MP+1）',skill:'（MP2）',guard:'（MP+2）',heal:'（HP38）'}[id]));
+     for(const [id,label] of Object.entries(actionsFor(battle))){
+      const action=add(actions,'button',label+({attack:'（MP+1）',skill:'（MP2）',guard:'（MP+2）',heal:'（HP'+(38+(battleGear(battle).heal||0))+'）',burst:'（MP4）',cleanse:'（MP1）'}[id]));
       action.type='button';action.disabled=!canAct(battle,id);action.dataset.action=id;
       const expectedBattle=battle;
       action.onclick=()=>{if(battle!==expectedBattle||activeScope!==scopeNow())return;if(period(Date.now()).start!==battle.week){paint();return;}battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
@@ -646,7 +709,7 @@
    add(shop,'h3','🏪 星巡り遠征ショップ');
    const w=storageError||shopError?null:wallet(previewLedger,owned);
    add(shop,'strong',w?'💎 利用可能（端末記録）：'+w.balance+' ／ 消費 '+w.spent:'購入履歴の確認が必要です');
-   add(shop,'p','限定品は各1個のみ。武器・装備は遠征内の展示用で、通常戦闘の性能には影響しません。ゲストは端末内購入、ログイン中はクラウドで残高を確認して購入します。','pq9-note');
+   add(shop,'p','限定品は各1個のみ。展示した限定品1つの効果が次回の遠征戦闘に適用されます。通常の冒険には影響しません。ゲストは端末内購入、ログイン中はクラウドで残高を確認して購入します。','pq9-note');
    if(activeScope.startsWith('account:')&&!cloudReady()){add(shop,'p','ログイン中の交換は専用クラウド台帳確認後に利用できます。報酬メニューから確認してください。','pq9-note');const checkBtn=add(shop,'button','報酬メニューへ');checkBtn.type='button';checkBtn.onclick=()=>changeView('rewards');}
    const msg=add(shop,'p',shopError||shopMessage,'pq9-note');msg.setAttribute('role','status');
    async function refreshPurchases(scope){
@@ -687,7 +750,7 @@
    for(const [id,item] of Object.entries(SHOP)){
     const card=add(catalog,'div','','pq9-route');
     add(card,'div',item.icon,'pq9-fighter-icon');add(card,'strong',item.name);
-    add(card,'p',item.type+' ｜ 💎 '+item.cost,'pq9-note');add(card,'p',item.description,'pq9-note');
+    add(card,'p',item.type+' ｜ 💎 '+item.cost,'pq9-note');add(card,'p',item.description,'pq9-note');add(card,'p','戦闘効果：'+EXPLORER_GEAR[id].label,'pq9-note');
     const got=owned.includes(id);if(got)card.classList.add('pq9-item-owned');const button=add(card,'button',got?'獲得済み':shopBusy?'処理中':'交換する');button.type='button';
     button.disabled=got||shopBusy||!!storageError||!!shopError||(activeScope==='guest'?(!w||w.balance<item.cost):!cloudReady());button.onclick=()=>buy(id);
     if(got){const eq=add(card,'button',display===id?'展示解除':'遠征に展示');eq.type='button';eq.onclick=()=>{if(scopeNow()!==activeScope)return;try{setDisplay(localStorage,activeScope,readOwned(localStorage,activeScope),display===id?null:id);}catch(e){shopMessage=e.message;}paint();};}
@@ -707,7 +770,7 @@
    const collection=add(shop,'section','','pq9-step');add(collection,'h3','📖 遠征コレクション '+owned.length+'/'+Object.keys(SHOP).length);
    bar(collection,owned.length,Object.keys(SHOP).length,'コレクション達成度');
    for(const m of collectionMilestones(previewLedger,owned)){add(collection,'p',(m.done?'✓ ':'◇ ')+m.name+'　'+Math.min(m.value,m.target)+'/'+m.target,'pq9-note');}
-   add(collection,'p','長期実績は表示専用。展示設定は端末内のみ保存されます。','pq9-note');
+   add(collection,'p','長期実績は表示専用。展示・遠征装備設定は端末内のみ保存されます。','pq9-note');
    const grid=add(panel,'div','','pq9-grid');grid.hidden=view!=='map';
    for(const route of d.routes){
     const card=add(grid,'section','','pq9-route');
@@ -740,7 +803,7 @@
       const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
       if(fresh.period.start!==selectedWeek){paint();return;}
       if(storageError)return;
-      battle=beginExplorerBattle(fresh,freshMap,route.id,kind,element,readReceipts(localStorage,activeScope));
+      try{const items=readOwned(localStorage,activeScope);battle=beginExplorerBattle(fresh,freshMap,route.id,kind,element,readReceipts(localStorage,activeScope),items,readDisplay(localStorage,activeScope,items));}catch(e){storageError=e.message;rewardMessage='戦闘開始中止：'+e.message;paint();return;}
       if(battle)view='battle';paint();if(battle){const target=panel.querySelector('#pq9-battle h3');target?.focus();target?.scrollIntoView({block:'start'});}
      };
     }
@@ -761,7 +824,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
