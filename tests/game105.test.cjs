@@ -1,0 +1,31 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {VERSION,TITLE_LINKS,NEWS,titleTarget,stars,HOME_LINKS,HOME_FEATURES,homeStatus}=require('../game105.js');
+const {GROUPS}=require('../ui92.js');
+assert.equal(VERSION,'10.5');assert.equal(TITLE_LINKS.length,5);
+assert.equal(new Set(TITLE_LINKS.map(x=>x.id)).size,5);
+for(const link of TITLE_LINKS)if(link.target)assert.ok(GROUPS.some(g=>g.tabs.includes(link.target)));
+assert.equal(titleTarget('start'),'home');assert.equal(titleTarget('account'),'settings92');assert.equal(titleTarget('settings'),'settings92');assert.equal(titleTarget('news'),null);assert.equal(titleTarget('invalid'),null);
+assert.ok(NEWS.every(x=>x.title&&x.body));assert.equal(stars(94).length,94);assert.deepEqual(stars(),stars());assert.ok(stars().every(x=>x.x>=0&&x.x<1200&&x.y>=0&&x.y<690&&x.opacity<=1));
+const source=fs.readFileSync('game105.js','utf8'),html=fs.readFileSync('index.html','utf8');
+assert.ok(html.indexOf('src="./game105.js"')>html.indexOf('src="./ui92.js"'));
+assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(source),'title shell must not persist or send data');
+assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(source),'title shell must not write game state');
+console.log('PASS title routes, deterministic art, script load order and presentation-only safety');
+
+assert.equal(HOME_LINKS.length,12);assert.equal(new Set(HOME_LINKS.map(x=>x[0])).size,12);
+for(const link of [...HOME_LINKS,...HOME_FEATURES])assert.ok(GROUPS.some(g=>g.tabs.includes(link[0])),link[0]);
+assert.equal(homeStatus({level:'Lv.5',gold:'🪙 250G',energy:'⚡ 2',progress:67}).level,'Lv.5');
+assert.equal(homeStatus({progress:200}).progress,100);assert.equal(homeStatus({progress:-1}).progress,0);assert.equal(homeStatus({progress:'bad'}).progress,0);
+assert.equal(homeStatus({name:''}).name,'冒険者');
+console.log('PASS home links, featured routes and read-only HUD projection');
+
+const {searchMenu,recordVisit,recentVisits,MENU_ALIASES}=require('../game105.js');
+const entries=[{id:'expedition90',label:'星巡り遠征',group:'冒険',keywords:MENU_ALIASES.expedition90},{id:'outdoor60',label:'散歩・外出',group:'活動',keywords:MENU_ALIASES.outdoor60}];
+assert.deepEqual(searchMenu(entries,'  星晶石 冒険 ').map(x=>x.id),['expedition90']);
+assert.deepEqual(searchMenu(entries,'ポケモンＧＯ').map(x=>x.id),['outdoor60']);
+assert.equal(searchMenu(entries,'無関係').length,0);
+assert.equal(searchMenu(entries,'').length,2);
+const h=['home','quests'];assert.deepEqual(recordVisit(h,'quests'),h);assert.deepEqual(recordVisit(h,'town',2),['quests','town']);assert.deepEqual(h,['home','quests']);
+assert.deepEqual(recentVisits(['home','quests','home','town']),['town','home','quests']);
+console.log('PASS menu search, full-width normalization, bounded history and deduplicated recent routes');

@@ -13,3 +13,14 @@ For every new player-facing content module, implement a test-only entry point be
 
 ## Ver.10.0 coverage
 Map and branch selection, difficulty/element, normal/boss/hidden combat, equipment effects, damage/status feedback, reward/duplicate claim, chest collection, growth, summon/pity/insufficient funds, rarity previews, codex filters, reset and isolation. Test-only scenario state is discarded at close/reset.
+
+
+## Ver.10.5 coverage
+- Title and lobby: original presentation, no game-state writes, all navigation, live status, responsive widths and reduced motion.
+- Menu: 28 original destinations, Japanese search and aliases, category/recent filters, back and home, collection/inbox/audio/test shortcuts.
+- Profile: dedicated device-only preference key, validation, preview, explicit save/reset, isolated test fixture.
+- Collection center: 24 routes (8 inventory, 11 summon, 5 codex); original currency, ownership and draw rules unchanged. Test navigation reports only.
+- Inbox: session-only news read state, existing native reward screens; isolated single/bulk receipt, locked/expired and duplicate prevention. No new production payout.
+- Audio: opt-in, original three BGM scenes and sound effects, independent device-only settings, preview isolation, visibility and reduced-motion safeguards.
+- Test center: 10 manual acceptance items, links to original read-only navigation or isolated fixture modes, session-only results, reset and copyable report.
+- All production game balances, cloud schema and existing save keys remain unchanged by the presentation shell. Device-specific cosmetic/audio preferences are not cloud-synced.
