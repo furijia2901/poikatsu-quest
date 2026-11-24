@@ -147,6 +147,33 @@ const server=http.createServer((req,res)=>{
    assert.ok(await lobby.locator('.pq105-home-grid').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'lobby grid overflow');
    console.log('PASS lobby profile, currencies, all twelve links, featured carousel, equipment and reward routing '+viewport.width+'px');
 
+   const toolbar=page.locator('#pq105-toolbar'),menu=page.locator('#pq105-menu');
+   await toolbar.getByRole('button',{name:'☰ メニュー',exact:true}).click();
+   assert.equal(await menu.locator('[data-pq105-menu-id]').count(),28);
+   const search=menu.getByRole('searchbox',{name:'コンテンツ検索'});
+   await search.fill('星晶石');
+   assert.equal(await menu.locator('[data-pq105-menu-id]').count(),1);
+   await menu.locator('[data-pq105-menu-id="expedition90"]').click();
+   await page.locator('#expedition90.active').waitFor();
+   await toolbar.getByRole('button',{name:'☰ メニュー',exact:true}).click();
+   await menu.locator('[data-pq105-menu-group="recent"]').click();
+   assert.equal(await menu.locator('[data-pq105-menu-id]').first().getAttribute('data-pq105-menu-id'),'expedition90');
+   await menu.getByRole('button',{name:'閉じる',exact:true}).click();
+   await toolbar.getByRole('button',{name:'‹ 戻る',exact:true}).click();
+   await page.locator('#home.active').waitFor();
+   await toolbar.getByRole('button',{name:'☰ メニュー',exact:true}).click();
+   await menu.locator('[data-pq105-menu-group="activity"]').click();
+   assert.equal(await menu.locator('[data-pq105-menu-id]').count(),4);
+   await menu.getByRole('searchbox').fill('該当しない検索');
+   assert.match(await menu.innerText(),/一致するコンテンツがありません/);
+   await menu.getByRole('searchbox').fill('');
+   await menu.locator('[data-pq105-menu-id="quests"]').click();
+   await page.locator('#quests.active').waitFor();
+   await toolbar.getByRole('button',{name:'⌂ ホーム',exact:true}).click();
+   await page.locator('#home.active').waitFor();
+   console.log('PASS all-content menu, search, category, recent history, back and home '+viewport.width+'px');
+
+
 
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),navBefore,'navigation must not change game or storage');
    assert.ok(await page.locator('.pq92-categories').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'categories overflow');
