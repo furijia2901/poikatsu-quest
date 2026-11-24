@@ -43,6 +43,45 @@
   const issues=preflight(current,backup);
   return {issues,identical:equal(current,backup.saveData),snapshot:JSON.stringify(current)};
  }
+
+ // Only used with a private in-memory store at this stage.
+ function restoreTransaction(store,expected,candidate){
+  const original=store.read();
+  if(original!==expected)throw Error('比較後にデータが変更されました');
+  const next=JSON.stringify(candidate);
+  if(typeof next!=='string')throw Error('復元データが不正です');
+  if(next===original)return 'unchanged';
+  store.reserve(original);
+  if(store.readReserved()!==original)throw Error('退避確認失敗');
+  if(store.read()!==original)throw Error('退避中にデータが変更されました');
+  try{
+   store.write(next);
+   if(store.read()!==next)throw Error('復元後の照合失敗');
+   return 'restored';
+  }catch(e){
+   try{store.write(original);if(store.read()!==original)throw Error('照合失敗');}
+   catch(rollback){throw Error('ロールバック失敗：退避データを保持してください');}
+   throw Error('復元中止・元データに戻しました：'+e.message);
+  }
+ }
+ function runRestoreTests(){
+  const original=JSON.stringify({level:2,gold:20}),target={level:1,gold:0};
+  function memory(mode){
+   let data=original,reserved=null, writes=0;
+   return {read:()=>data,readReserved:()=>reserved,reserve:v=>{if(mode==='reserve')throw Error('容量不足');reserved=v;if(mode==='race')data='newer';},
+    write:v=>{writes++;if(mode==='rollback'&&writes>1)throw Error('書き戻し失敗');data=(mode==='verify'||mode==='rollback')&&writes===1?'broken':v;},count:()=>writes};
+  }
+  const cases=[
+   ['正常復元',()=>{const m=memory();return restoreTransaction(m,original,target)==='restored'&&m.read()===JSON.stringify(target)&&m.readReserved()===original;}],
+   ['一致時は書き込みなし',()=>{const m=memory();return restoreTransaction(m,original,JSON.parse(original))==='unchanged'&&m.count()===0;}],
+   ['比較後の変更',()=>{const m=memory();try{restoreTransaction(m,'stale',target);}catch(e){return m.count()===0&&m.read()===original;}return false;}],
+   ['退避失敗',()=>{const m=memory('reserve');try{restoreTransaction(m,original,target);}catch(e){return m.count()===0&&m.read()===original;}return false;}],
+   ['退避中の競合',()=>{const m=memory('race');try{restoreTransaction(m,original,target);}catch(e){return m.count()===0&&m.read()==='newer';}return false;}],
+   ['照合失敗・ロールバック',()=>{const m=memory('verify');try{restoreTransaction(m,original,target);}catch(e){return m.read()===original&&m.readReserved()===original;}return false;}],
+   ['ロールバック失敗時の退避保持',()=>{const m=memory('rollback');try{restoreTransaction(m,original,target);}catch(e){return e.message.includes('ロールバック失敗')&&m.readReserved()===original;}return false;}]
+  ];
+  return cases.map(([name,test])=>{try{return {name,pass:test()===true};}catch(e){return {name,pass:false};}});
+ }
  function init(){
   const panel=document.getElementById('cloud-panel');
   if(!panel||document.getElementById('pq-backup-preview-v8'))return;
@@ -100,7 +139,13 @@
    }catch(e){if(run===generation)output.textContent='❌ 比較できません：'+e.message}
    finally{if(run===generation)input.value=''}
   });
-  wrap.append(heading,note,input,output,safety,rescue);panel.appendChild(wrap);
+  const test=document.createElement('button');test.type='button';test.textContent='🧪 第8.2弾：復元シミュレーション';
+  const report=document.createElement('pre');report.setAttribute('aria-live','polite');report.style.whiteSpace='pre-wrap';
+  test.addEventListener('click',()=>{
+   const results=runRestoreTests(),passed=results.filter(x=>x.pass).length;
+   report.textContent=passed+'/'+results.length+' PASS\n'+results.map(x=>(x.pass?'✅ ':'❌ ')+x.name).join('\n')+'\n※メモリ上の架空データのみ。実際のセーブ・クラウドは変更していません。';
+  });
+  wrap.append(heading,note,input,output,safety,rescue,test,report);panel.appendChild(wrap);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
