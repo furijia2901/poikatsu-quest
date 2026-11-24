@@ -304,6 +304,46 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),audioBefore);
    console.log('PASS optional audio previews, volume controls, motion preferences, reset and save isolation '+viewport.width+'px');
 
+   const center=page.locator('#pq105-tests');
+   const centerBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await lobby.getByRole('button',{name:'🧪 テストセンター',exact:true}).click();
+   assert.equal(await center.locator('[data-pq105-check]').count(),10);
+   await center.locator('[data-pq105-check="title"]').getByRole('button',{name:'PASS',exact:true}).click();
+   assert.match(await center.locator('.pq105-test-summary').innerText(),/PASS 1 \/ 10/);
+   assert.match(await center.getByRole('textbox',{name:'実機テスト結果'}).inputValue(),/タイトル・起動：PASS/);
+   await center.locator('[data-pq105-check="profile"]').getByRole('button',{name:'確認画面へ'}).click();
+   await profileEditor.waitFor({state:'visible'});
+   assert.match(await profileEditor.innerText(),/テストモード/);
+   await profileEditor.getByRole('button',{name:'閉じる（未保存の変更を破棄）',exact:true}).click();
+   await lobby.getByRole('button',{name:'🧪 テストセンター',exact:true}).click();
+   assert.match(await center.locator('.pq105-test-summary').innerText(),/PASS 1 \/ 10/);
+   await center.locator('[data-pq105-check="collection"]').getByRole('button',{name:'確認画面へ'}).click();
+   await collection.waitFor({state:'visible'});
+   assert.match(await collection.innerText(),/SSR 試験星剣/);
+   await collection.getByRole('button',{name:'閉じる',exact:true}).click();
+   await lobby.getByRole('button',{name:'🧪 テストセンター',exact:true}).click();
+   await center.locator('[data-pq105-check="gifts"]').getByRole('button',{name:'確認画面へ'}).click();
+   await inbox.waitFor({state:'visible'});
+   assert.match(await inbox.locator('#pq105-test-gift-balance').innerText(),/0G/);
+   await inbox.getByRole('button',{name:'閉じる',exact:true}).click();
+   await lobby.getByRole('button',{name:'🧪 テストセンター',exact:true}).click();
+   await center.locator('[data-pq105-check="audio"]').getByRole('button',{name:'確認画面へ'}).click();
+   await audio.waitFor({state:'visible'});
+   assert.match(await audio.innerText(),/サウンド・演出試験/);
+   await audio.getByRole('button',{name:'閉じる',exact:true}).click();
+   await lobby.getByRole('button',{name:'🧪 テストセンター',exact:true}).click();
+   await center.locator('[data-pq105-check="expedition"]').getByRole('button',{name:'確認画面へ'}).click();
+   await page.locator('#pq91-sandbox').waitFor({state:'visible'});
+   await page.locator('#pq91-sandbox').getByRole('button',{name:'テストを終了',exact:true}).click();
+   await gotoTab('home');
+   await lobby.getByRole('button',{name:'🧪 テストセンター',exact:true}).click();
+   await center.getByRole('button',{name:'判定を初期化',exact:true}).click();
+   assert.match(await center.locator('.pq105-test-summary').innerText(),/PASS 0 \/ 10/);
+   await center.getByRole('button',{name:'閉じる',exact:true}).first().click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),centerBefore);
+   console.log('PASS integrated test center fixture launch, result tracking, reset and data isolation '+viewport.width+'px');
+
+
 
 
 
