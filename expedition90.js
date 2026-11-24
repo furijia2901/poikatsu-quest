@@ -50,6 +50,51 @@
   const rank=cleared===9?'星巡りの英雄':cleared>=6?'星界の探検家':cleared>=3?'星灯の旅人':'遠征見習い';
   return {period:p,metrics,routes,cleared,total:9,rank};
  }
+
+ // Weekly map is stable across reloads and devices. Choices are preview-only.
+ const VARIANTS={
+  market:[
+   {name:'黄昏の交易都市',weather:'黄金の追い風',story:'商隊が星砂の市場へ向かう。',branches:[['merchant','商人の小径','補給箱', 'quests',4],['ruins','古代の商路','封印された宝箱','categories',3]]},
+   {name:'砂金の峡谷',weather:'砂塵の星空',story:'峡谷の奥から古い貨幣が見つかる。',branches:[['river','川沿いの道','流砂の宝箱','quests',5],['ridge','崖の見張り台','交易の秘宝','categories',3]]},
+   {name:'月灯りの市場',weather:'月光の祝福',story:'夜の市場で旅商人の依頼を発見。',branches:[['inn','旅人の宿','旅支度の箱','quests',4],['tower','時計塔の裏路地','月銀の宝箱','categories',4]]}
+  ],
+  trail:[
+   {name:'蒼星の樹海',weather:'星露の朝',story:'木々の間に光る足跡を見つけた。',branches:[['lake','湖畔の小径','星露の箱','outdoor',2],['grove','古樹の広場','森の宝箱','outdoorTypes',2]]},
+   {name:'風渡る丘陵',weather:'穏やかな風',story:'丘の先に忘れられた祭壇がある。',branches:[['hill','花の丘','風の宝箱','outdoor',3],['altar','星風の祭壇','精霊の箱','outdoorTypes',2]]},
+   {name:'月影の湿原',weather:'銀色の霧',story:'小さな精霊が安全な道を案内する。',branches:[['bridge','木橋の散策路','霧の宝箱','outdoor',2],['shrine','精霊の休息地','月影の箱','outdoorTypes',3]]}
+  ],
+  citadel:[
+   {name:'宵星の空中庭園',weather:'流星群',story:'二つの活動の光が庭園の門を開く。',branches:[['garden','空中庭園','星花の宝箱','balanced',2],['spire','星見の尖塔','星核の箱','combinedDays',2]]},
+   {name:'暁の浮遊城',weather:'夜明けの光',story:'浮遊城の鍵を探す遠征が始まる。',branches:[['hall','黎明の回廊','暁の宝箱','balanced',3],['gate','双星の門','双星の箱','combinedDays',2]]},
+   {name:'星海の観測所',weather:'星海の静寂',story:'観測所に未知の星図が残されている。',branches:[['chart','星図の書庫','観測者の箱','balanced',2],['observatory','天球の間','星海の宝箱','combinedDays',3]]}
+  ]
+ };
+ const DIFFICULTIES={easy:{label:'探索',extra:0},normal:{label:'冒険',extra:1},hard:{label:'挑戦',extra:2}};
+ const EVENTS=[
+  ['旅商人の補給','物資を分けてもらえる探索地点を発見。'],
+  ['星の精霊','精霊が宝箱の眠る場所を教えてくれた。'],
+  ['古代の石碑','遠征の記録が刻まれた石碑を発見。'],
+  ['小さな野営地','旅の途中で休息できる場所に到着。'],
+  ['流星の欠片','星空から落ちた光の欠片を見つけた。'],
+  ['謎の門番','門番が次の探索地点への道を示した。']
+ ];
+ function hash(str){let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+ function weeklyMap(d,choices={},difficulty='easy'){
+  const diff=Object.hasOwn(DIFFICULTIES,difficulty)?difficulty:'easy';
+  const week=Math.floor(Date.parse(d.period.start+'T00:00:00Z')/(7*DAY));
+  return d.routes.map(route=>{
+   const variants=VARIANTS[route.id],v=variants[((week+hash(route.id))%variants.length+variants.length)%variants.length];
+   const branches=v.branches.map(([id,name,chest,key,base])=>{
+    const ceiling=key==='categories'?5:key==='outdoorTypes'?3:key==='combinedDays'?7:100;
+    const target=Math.min(ceiling,base+DIFFICULTIES[diff].extra);
+    const value=Math.min(d.metrics[key],target);
+    return {id,name,chest,key,target,value,ready:route.steps[0].cleared&&value>=target};
+   });
+   const selected=branches.find(b=>b.id===choices?.[route.id])||branches[0];
+   const event=EVENTS[hash(d.period.start+':'+route.id+':'+selected.id)%EVENTS.length];
+   return {id:route.id,region:v.name,weather:v.weather,story:v.story,branches,selected,event:{name:event[0],description:event[1]},unlocked:route.steps[0].cleared,difficulty:diff};
+  });
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -66,9 +111,12 @@
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
+  let selectedWeek='',choices={},difficulty='easy';
   function paint(){
    if(!panel.classList.contains('active'))return;
    const d=derive(typeof s==='undefined'?{}:s);
+   if(selectedWeek!==d.period.start){selectedWeek=d.period.start;choices={};difficulty='easy';}
+   const map=weeklyMap(d,choices,difficulty);
    panel.replaceChildren();
    const hero=add(panel,'section','','pq9-hero');
    add(hero,'p','VER.9.0 · STAR EXPEDITION','pq9-note');
@@ -77,11 +125,35 @@
    add(hero,'strong',d.rank+'　｜　'+d.cleared+' / '+d.total+' 地点攻略');
    bar(hero,d.cleared,d.total,'遠征全体の攻略進捗');
    add(hero,'p','今週のポイ活 '+d.metrics.quests+'件 ／ 外出 '+d.metrics.outdoor+'件 ／ 両方達成 '+d.metrics.combinedDays+'日','pq9-note');
+   const settings=add(panel,'section','','pq9-route');
+   add(settings,'h3','🧭 今週の遠征マップ');
+   add(settings,'p','分岐と難易度を選んで探索条件を確認しよう。既存の9地点攻略は変わりません。','pq9-note');
+   const difficultyLabel=add(settings,'label','探索難易度　');
+   const select=document.createElement('select');select.setAttribute('aria-label','探索難易度');
+   for(const [id,def] of Object.entries(DIFFICULTIES)){const option=document.createElement('option');option.value=id;option.textContent=def.label;select.append(option);}
+   select.value=difficulty;select.onchange=()=>{difficulty=select.value;paint();panel.querySelector('select')?.focus();};difficultyLabel.append(select);
    const grid=add(panel,'div','','pq9-grid');
    for(const route of d.routes){
     const card=add(grid,'section','','pq9-route');
     add(card,'h3',route.icon+' '+route.title+'　'+route.cleared+'/3');
     add(card,'p',route.subtitle,'pq9-note');
+    const m=map.find(x=>x.id===route.id);
+    add(card,'h4',m.region);add(card,'p',m.weather+' ／ '+m.story,'pq9-note');
+    const branchBox=add(card,'div','','pq9-step');
+    add(branchBox,'strong','分岐探索');
+    for(const branch of m.branches){
+     const option=add(branchBox,'button',(m.selected.id===branch.id?'✓ ':'')+branch.name);
+     option.type='button';option.setAttribute('aria-pressed',String(m.selected.id===branch.id));
+     option.dataset.branch=m.id+':'+branch.id;
+     option.onclick=()=>{choices[m.id]=branch.id;paint();[...panel.querySelectorAll('[data-branch]')].find(x=>x.dataset.branch===option.dataset.branch)?.focus();};
+    }
+    const sel=m.selected;
+    const labels={quests:'ポイ活件数',categories:'ポイ活の種類',outdoor:'外出件数',outdoorTypes:'外出の種類',balanced:'ポイ活・外出の各件数',combinedDays:'両方達成した日数'};
+    add(branchBox,'p',labels[sel.key]+' '+sel.value+'/'+sel.target+'　'+(!m.unlocked?'🔒 最初の攻略地点で解放':sel.ready?'✓ 探索達成':'探索中'),'pq9-note');
+    bar(branchBox,sel.value,sel.target,sel.name);
+    add(branchBox,'p',m.unlocked?'✨ '+m.event.name:'🔒 遭遇イベント');
+    if(m.unlocked)add(branchBox,'p',m.event.description,'pq9-note');
+    add(branchBox,'p',(sel.ready?'🔓 ':'🔒 ')+sel.chest+(sel.ready?'（発見・報酬未実装）':'（条件達成で発見）'),'pq9-note');
     for(const step of route.steps){
      const item=add(card,'div','','pq9-step'+(!step.unlocked?' pq9-locked':''));
      const label=add(item,'div','','pq9-label');
@@ -92,13 +164,13 @@
      bar(item,step.value,step.target,step.name);
     }
    }
-   add(panel,'p','毎週月曜0時に更新。既存の達成記録から進行を集計します。遠征の称号は表示専用で、現段階では追加報酬やセーブ変更はありません。','pq9-note');
+   add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱・イベントは発見表示のみで、追加報酬やセーブ変更はありません。','pq9-note');
    const refresh=add(panel,'button','↻ 進捗を更新');refresh.type='button';refresh.onclick=paint;
   }
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
