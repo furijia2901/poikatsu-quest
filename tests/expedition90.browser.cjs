@@ -166,6 +166,19 @@ const server=http.createServer((req,res)=>{
    await panel.locator('[data-pq9-view="growth"]').click();
    assert.equal(await panel.locator('#pq10-growth').innerText(),growthText,'spending cannot reduce EXP');
    console.log('PASS explorer growth and spending isolation '+viewport.width+'px');
+   const codexBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await panel.locator('[data-pq9-view="codex"]').click();
+   const codex=panel.locator('#pq10-codex');
+   assert.match(await codex.innerText(),/図鑑達成 2 \/ 39 種/);
+   assert.equal(await codex.locator('[data-codex-id]').count(),39);
+   await codex.getByLabel('図鑑 分類',{exact:true}).selectOption('gear');
+   assert.equal(await codex.locator('[data-codex-id]').count(),8);
+   await codex.getByLabel('図鑑 収集状況',{exact:true}).selectOption('found');
+   assert.equal(await codex.locator('[data-codex-id]').count(),1);
+   assert.match(await codex.innerText(),/星灯のランタン/);
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),codexBefore,'codex must be read-only');
+   console.log('PASS 39-entry codex and filtering '+viewport.width+'px');
+
 
    assert.equal(await page.evaluate(()=>localStorage.getItem('poikatsu-quest-v01')),base,'ordinary save unchanged by expedition');
    await panel.locator('[data-pq9-view="map"]').click();
@@ -228,6 +241,16 @@ const server=http.createServer((req,res)=>{
    assert.match(await sandbox.innerText(),/召喚成功：/);
    assert.match(await sandbox.innerText(),/1：(?:N|R|SR|SSR|UR) /);
    console.log('PASS isolated summon, shared wallet and result '+viewport.width+'px');
+   await sandbox.getByRole('button',{name:'図鑑',exact:true}).click();
+   assert.match(await sandbox.innerText(),/図鑑達成 3 \/ 39 種/);
+   await sandbox.getByLabel('図鑑 分類',{exact:true}).selectOption('gacha');
+   await sandbox.getByLabel('図鑑 収集状況',{exact:true}).selectOption('found');
+   assert.equal(await sandbox.locator('[data-codex-id]').count(),1);
+   assert.equal(await sandbox.locator('[data-found="true"]').count(),1);
+   await sandbox.getByLabel('図鑑 収集状況',{exact:true}).selectOption('missing');
+   assert.equal(await sandbox.locator('[data-codex-id]').count(),9);
+   console.log('PASS sandbox codex filters '+viewport.width+'px');
+
 
    console.log('PASS enhanced combat, sword effect, status and cleanse '+viewport.width+'px');
 
