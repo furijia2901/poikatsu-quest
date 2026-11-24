@@ -208,6 +208,18 @@
   const next=validateLedger({version:1,claims:[...ledger.claims,id]});
   return {ledger:next,credited:option.value,status:'claimed'};
  }
+
+ // A cloud plan is intentionally read-only. Only the ledger may be merged automatically.
+ const LEDGER_KEY='expedition90Rewards';
+ const canonical=x=>Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
+ function planLedgerSync(local,remote,revision){
+  if(!local||typeof local!=='object'||Array.isArray(local)||!remote||typeof remote!=='object'||Array.isArray(remote)||!Number.isSafeInteger(revision)||revision<1)throw Error('同期元またはリビジョンが不正');
+  const a=validateLedger(local[LEDGER_KEY]),b=validateLedger(remote[LEDGER_KEY]),merged=mergeLedgers(a,b);
+  const strip=obj=>Object.fromEntries(Object.entries(obj).filter(([key])=>key!==LEDGER_KEY));
+  const otherDifferent=JSON.stringify(canonical(strip(local)))!==JSON.stringify(canonical(strip(remote)));
+  const onlyLocal=ledgerLoss(b,a),onlyRemote=ledgerLoss(a,b);
+  return {revision,onlyLocal,onlyRemote,merged,balance:ledgerBalance(merged),status:otherDifferent?'blocked-other-data':onlyLocal.length||onlyRemote.length?'ledger-only':'identical'};
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -225,7 +237,7 @@
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='';
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false;
   function paint(){
    if(!panel.classList.contains('active'))return;
    const d=derive(typeof s==='undefined'?{}:s);
@@ -281,6 +293,14 @@
       action.onclick=()=>{if(battle!==expectedBattle)return;if(period(Date.now()).start!==battle.week){paint();return;}battle=battleStep(battle,id);paint();panel.querySelector('[data-action="'+id+'"]:not(:disabled)')?.focus();};
      }
     }else add(battleBox,'strong',({won:'🏆 勝利！',lost:'敗北…',timeout:'制限ターン終了'})[battle.status]+'　※試験報酬のみ');
+    if(battle.status==='won'){
+     const id=receiptId(battle.week,battle.routeId,battle.kind),claimed=previewLedger.claims.includes(id);
+     const prize=add(battleBox,'button',claimed?'試験報酬受取済み':'勝利報酬を試験受取（'+receiptValue(id)+' 星晶石）');prize.type='button';prize.disabled=claimed;
+     prize.onclick=()=>{
+      const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty),result=claimReward(previewLedger,fresh,freshMap,battle,id);
+      previewLedger=result.ledger;rewardMessage=result.status==='claimed'?'✓ 勝利報酬 '+result.credited+' 星晶石を試験受取':'受け取れませんでした';paint();
+     };
+    }
     const log=add(battleBox,'div','','pq9-note');log.setAttribute('aria-live','polite');
     for(const line of battle.log.slice(-6))add(log,'p',line);
     const exit=add(battleBox,'button',battle.status==='active'?'戦闘を中断':'戦闘結果を閉じる');exit.type='button';
@@ -298,6 +318,22 @@
     rewardMessage=result.status==='claimed'?'✓ 星晶石 '+result.credited+' 個を試験受取':result.status==='duplicate'?'受取済みです':'まだ条件を達成していません';
     paint();
    }
+   const syncText=add(rewards,'p',syncMessage,'pq9-note');syncText.setAttribute('role','status');
+   const syncBtn=add(rewards,'button',syncChecking?'クラウド診断中…':'☁️ 遠征台帳の同期診断（読取専用）');syncBtn.type='button';syncBtn.disabled=syncChecking;
+   syncBtn.onclick=async()=>{
+    if(syncChecking)return;
+    if(typeof cloud==='undefined'||!cloud.session){syncMessage='クラウドにログインしてから診断してね。';paint();return;}
+    if(cloud.busy||cloud.checking||cloud.dirty){syncMessage='既存の同期処理が完了してから診断してね。';paint();return;}
+    syncChecking=true;syncMessage='比較中…';paint();
+    try{
+     const local=JSON.parse(JSON.stringify(s)),uid=cloud.session.user.id,row=await cloudRemote();
+     if(cloud.session?.user?.id!==uid||JSON.stringify(s)!==JSON.stringify(local)||cloud.busy||cloud.checking||cloud.dirty)throw Error('診断中に端末または同期状態が変わりました');
+     if(!row?.save_data)throw Error('クラウドセーブがありません');
+     const plan=planLedgerSync(local,row.save_data,row.revision);
+     syncMessage='台帳のみの差分：端末 '+plan.onlyLocal.length+'件／クラウド '+plan.onlyRemote.length+'件。統合後 '+plan.balance+' 星晶石。'+(plan.status==='blocked-other-data'?'他のセーブ項目にも差があります。自動統合禁止。':plan.status==='identical'?'一致。':'台帳統合候補あり。')+' ※書き込みなし';
+    }catch(e){syncMessage='診断中止：'+e.message;}
+    finally{syncChecking=false;paint();}
+   };
    const options=rewardOptions(d,map,battle);
    const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
    const allBtn=add(rewards,'button','受取可能な報酬を試験受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length;
@@ -367,7 +403,7 @@
   const prev=render;render=function(){prev();paint();};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
