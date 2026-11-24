@@ -136,12 +136,21 @@ const server=http.createServer((req,res)=>{
    const panel=page.locator('#expedition90');
    assert.equal(await panel.isVisible(),true);
    assert.equal(await panel.locator('#pq9-shop').isVisible(),false);
+   await panel.locator('[data-pq9-view="growth"]').click();
+   assert.match(await panel.locator('#pq10-growth').innerText(),/Lv\.1/);
+   assert.match(await panel.locator('#pq10-growth').innerText(),/累計EXP 0/);
+
    await panel.locator('[data-pq9-view="rewards"]').click();
    const reward=panel.getByRole('button',{name:/受取可能な報酬を一括受取/});
    await reward.click();
    await page.locator('#pq9-reveal').waitFor({state:'visible'});
    await page.locator('#pq9-reveal').getByRole('button',{name:'閉じる',exact:true}).click();
    assert.equal(await reward.isDisabled(),true);
+   await panel.locator('[data-pq9-view="growth"]').click();
+   const growthText=await panel.locator('#pq10-growth').innerText();
+   assert.match(growthText,/累計EXP [1-9]\d*/);
+   await panel.locator('[data-pq9-view="shop"]').click();
+
    await panel.locator('[data-pq9-view="shop"]').click();
    const lantern=panel.locator('#pq9-shop .pq9-grid > div').filter({hasText:'星灯のランタン'});
    await lantern.getByRole('button',{name:'交換する',exact:true}).click();
@@ -150,6 +159,10 @@ const server=http.createServer((req,res)=>{
    assert.equal(await lantern.getByRole('button',{name:'獲得済み',exact:true}).isDisabled(),true);
    await lantern.getByRole('button',{name:'遠征に展示',exact:true}).click();
    assert.match(await panel.locator('.pq9-hero').innerText(),/星灯のランタン/);
+   await panel.locator('[data-pq9-view="growth"]').click();
+   assert.equal(await panel.locator('#pq10-growth').innerText(),growthText,'spending cannot reduce EXP');
+   console.log('PASS explorer growth and spending isolation '+viewport.width+'px');
+
    assert.equal(await page.evaluate(()=>localStorage.getItem('poikatsu-quest-v01')),base,'ordinary save unchanged by expedition');
    await panel.locator('[data-pq9-view="map"]').click();
    await panel.getByRole('button',{name:/黄金の番兵/}).click();
