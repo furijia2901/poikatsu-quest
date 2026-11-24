@@ -336,6 +336,85 @@
   if(!validateOwned(owned).includes(id))throw Error('未所持のアイテム');
   storage.setItem(key,id);return readDisplay(storage,scope,owned);
  }
+
+ function createSandbox(now=Date.now()){
+  const d=derive({},now);
+  d.metrics={quests:100,outdoor:100,categories:5,outdoorTypes:3,balanced:100,combinedDays:7};
+  d.routes=d.routes.map(r=>({...r,cleared:3,steps:r.steps.map(s=>({...s,value:s.target,met:true,unlocked:true,cleared:true}))}));
+  d.cleared=9;d.rank='星巡りの英雄';
+  return {d,ledger:emptyLedger(),owned:[],display:null,battle:null,difficulty:'easy',element:'water',choices:{},credit:1000};
+ }
+ function sandboxWallet(t){const w=wallet(t.ledger,t.owned);return {...w,earned:w.earned+t.credit,balance:w.balance+t.credit};}
+ function sandboxClaim(t,id){
+  const result=claimReward(t.ledger,t.d,weeklyMap(t.d,t.choices,t.difficulty),t.battle,id);
+  return {...t,ledger:result.ledger,lastClaim:result.credited};
+ }
+ function sandboxBuy(t,id){
+  if(!Object.hasOwn(SHOP,id)||t.owned.includes(id)||sandboxWallet(t).balance<SHOP[id].cost)return t;
+  return {...t,owned:validateOwned([...t.owned,id])};
+ }
+ function mountSandbox(openButton){
+  const dialog=document.createElement('dialog');dialog.id='pq91-sandbox';dialog.setAttribute('aria-label','遠征テストモード');
+  dialog.style.cssText='width:min(760px,calc(100% - 24px));max-height:90dvh;box-sizing:border-box;overflow:auto;background:#17213b;color:#fff;border:2px solid #e8b653;border-radius:16px;padding:18px';
+  document.body.append(dialog);
+  let t=createSandbox(),view='map',message='';
+  const add=(p,tag,txt)=>{const e=document.createElement(tag);e.textContent=txt;p.append(e);return e;};
+  function button(p,label,fn,disabled=false){const b=add(p,'button',label);b.type='button';b.disabled=disabled;b.style.cssText='min-height:44px;margin:4px;white-space:normal;max-width:100%';b.onclick=fn;return b;}
+  function section(p,title){const el=add(p,'section','');el.style.cssText='padding:12px;margin:10px 0;border:1px solid #8173a8;border-radius:12px;background:#202c47';add(el,'h3',title);return el;}
+  function show(text){message=text;paint();}
+  function paint(){
+   if(!dialog.open)return;
+   dialog.replaceChildren();add(dialog,'h2','🧪 Ver.9.1 遠征テストモード');
+   add(dialog,'p','試験専用・本番反映なし。通常セーブ・端末台帳・クラウドには書き込みません。閉じると試験記録は破棄されます。');
+   add(dialog,'strong','試験星晶石：'+sandboxWallet(t).balance+' 個 ／ 9/9地点仮クリア');
+   button(dialog,'テストを終了',()=>dialog.close());
+   button(dialog,'試験データをリセット',()=>{t=createSandbox();view='map';show('試験データを初期化しました');});
+   const nav=add(dialog,'div','');
+   for(const [id,label] of [['map','遠征'],['battle','戦闘'],['rewards','報酬'],['shop','ショップ']]){const b=button(nav,label,()=>{view=id;paint();});b.setAttribute('aria-pressed',String(view===id));}
+   const status=add(dialog,'p',message);status.setAttribute('role','status');
+   const map=weeklyMap(t.d,t.choices,t.difficulty);
+   if(view==='map'){
+    const cfg=section(dialog,'難易度と属性');
+    for(const [id,def] of Object.entries(DIFFICULTIES))button(cfg,def.label+(t.difficulty===id?' ✓':''),()=>{t.difficulty=id;paint();},t.battle?.status==='active');
+    for(const [id,label] of Object.entries(ELEMENTS))button(cfg,label+(t.element===id?' ✓':''),()=>{t.element=id;paint();},t.battle?.status==='active');
+    for(const route of t.d.routes){const m=map.find(x=>x.id===route.id),p=section(dialog,route.icon+' '+route.title+' 3/3');add(p,'p',m.region+' ／ '+m.event.name);
+     for(const br of m.branches)button(p,br.name+(m.selected.id===br.id?' ✓':''),()=>{t.choices[route.id]=br.id;paint();});
+     add(p,'p','宝箱：'+m.selected.chest+'（解放済み）');
+     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginBattle(t.d,map,route.id,kind,t.element);view='battle';show('戦闘開始');},t.battle?.status==='active');
+    }
+   }else if(view==='battle'){
+    const p=section(dialog,'遠征バトル');
+    if(!t.battle){add(p,'p','遠征メニューで敵を選択してください');return;}
+    const b=t.battle;add(p,'strong',b.enemy.icon+' '+b.enemy.name+' ／ TURN '+b.turn);
+    add(p,'p','HP '+b.player.hp+'/'+b.player.maxHp+' ／ MP '+b.player.mp+'/'+b.player.maxMp+' ／ 薬 '+b.player.potions);
+    add(p,'p','敵HP '+b.enemy.hp+'/'+b.enemy.maxHp);
+    if(b.status==='active'){const intent=enemyIntent(b);add(p,'p','敵の予告：'+intent.name+' ／ '+intent.damage);
+     for(const [id,label] of Object.entries(ACTIONS))button(p,label,()=>{t.battle=battleStep(t.battle,id);paint();},!canAct(b,id));
+    }else{add(p,'strong',b.status==='won'?'🏆 勝利！':'戦闘終了：'+b.status);
+     if(b.status==='won'){const id=receiptId(b.week,b.routeId,b.kind);button(p,'勝利報酬を受取',()=>{t=sandboxClaim(t,id);show('🏆 星晶石 ＋'+t.lastClaim);},t.ledger.claims.includes(id));}
+    }
+    for(const line of b.log.slice(-6))add(p,'p',line);
+    button(p,'戦闘を終了して遠征へ',()=>{t.battle=null;view='map';paint();});
+   }else if(view==='rewards'){
+    const p=section(dialog,'試験報酬');
+    const options=rewardOptions(t.d,map,t.battle);
+    add(p,'p','受取履歴：'+t.ledger.claims.length+' / 19件');
+    for(const o of options){const got=t.ledger.claims.includes(o.id);const row=add(p,'div','');add(row,'span',o.label+' ／ ＋'+o.value+' ');
+     button(row,got?'受取済み':o.ready?'受け取る':'未解放',()=>{t=sandboxClaim(t,o.id);show((o.kind==='chest'?'🎁 宝箱開封！':'💎 報酬獲得！')+' 星晶石 ＋'+t.lastClaim);},got||!o.ready);
+    }
+    add(p,'p','クラウド同期は試験モードでは無効です。');
+   }else{
+    const p=section(dialog,'試験ショップ '+t.owned.length+'/8');
+    for(const [id,item] of Object.entries(SHOP)){const row=section(p,item.icon+' '+item.name+' ／ '+item.cost+'星晶石');
+     button(row,t.owned.includes(id)?'獲得済み':'交換する',()=>{const next=sandboxBuy(t,id);if(next!==t){t=next;show('🎉 '+item.name+' 獲得！');}},t.owned.includes(id)||sandboxWallet(t).balance<item.cost);
+     if(t.owned.includes(id))button(row,t.display===id?'展示解除':'遠征に展示',()=>{t.display=t.display===id?null:id;show(t.display?'展示中：'+item.name:'展示解除');});
+    }
+    if(t.display)add(p,'strong','展示中：'+SHOP[t.display].name);
+   }
+  }
+  dialog.addEventListener('close',()=>{t=createSandbox();dialog.remove();if(openButton.isConnected)openButton.focus();},{once:true});
+  dialog.showModal();paint();
+ }
  function mount(){
   const nav=document.querySelector('nav.tabs'),anchor=document.getElementById('outdoor60');
   if(!nav||!anchor||document.getElementById('expedition90'))return;
@@ -399,7 +478,8 @@
    const map=weeklyMap(d,choices,difficulty);
    panel.replaceChildren();
    const hero=add(panel,'section','','pq9-hero');
-   add(hero,'p','VER.9.0 · STAR EXPEDITION','pq9-note');
+   add(hero,'p','VER.9.1 · STAR EXPEDITION','pq9-note');
+   const testButton=add(hero,'button','🧪 遠征テストモード');testButton.type='button';testButton.onclick=()=>{if(!document.getElementById('pq91-sandbox'))mountSandbox(testButton);};
    add(hero,'h2','星巡り遠征');
    let display=null;try{if(!shopError)display=readDisplay(localStorage,activeScope,owned);}catch(e){shopError=e.message;}if(display)add(hero,'strong',SHOP[display].icon+' '+SHOP[display].name+'（遠征展示中）');
    add(hero,'p',d.period.start+' ～ '+d.period.end+'（日本時間）');
@@ -641,7 +721,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
