@@ -146,6 +146,10 @@ const server=http.createServer((req,res)=>{
    await page.locator('#pq9-reveal').waitFor({state:'visible'});
    await page.locator('#pq9-reveal').getByRole('button',{name:'閉じる',exact:true}).click();
    assert.equal(await reward.isDisabled(),true);
+   const chestText=await panel.locator('#pq10-chests').innerText();
+   assert.match(chestText,/開封 1 回 ／ 発見 1 \/ 15 種/);
+   assert.match(chestText,/(N|R|SR|SSR|UR) (黄金の古銭|交易商の印章|琥珀の星砂|黄金王の羅針盤|太陽王の聖杯)/);
+
    await panel.locator('[data-pq9-view="growth"]').click();
    const growthText=await panel.locator('#pq10-growth').innerText();
    assert.match(growthText,/累計EXP [1-9]\d*/);
@@ -173,6 +177,10 @@ const server=http.createServer((req,res)=>{
    assert.equal(await panel.locator('#pq9-battle').isVisible(),false);
    await page.reload();await page.locator('nav[data-ui92="1"]').waitFor();await seed();
    await gotoTab('expedition90');
+   await panel.locator('[data-pq9-view="rewards"]').click();
+   assert.equal(await panel.locator('#pq10-chests').innerText(),chestText,'fixed chest collection survives reload');
+   console.log('PASS chest reveal and persistent receipt-derived collection '+viewport.width+'px');
+
    await panel.locator('[data-pq9-view="shop"]').click();
    assert.equal(await lantern.getByRole('button',{name:'獲得済み',exact:true}).isDisabled(),true);
    assert.match(await panel.locator('.pq9-hero').innerText(),/星灯のランタン/);
@@ -187,6 +195,9 @@ const server=http.createServer((req,res)=>{
    const row=sandbox.locator('span').filter({hasText:'黄金街道：宝箱'}).locator('..');
    await row.getByRole('button',{name:'受け取る',exact:true}).click();
    assert.match(await sandbox.innerText(),/1015 個/);
+   assert.match(await sandbox.innerText(),/試験宝箱コレクション 1\/15/);
+   assert.match(await sandbox.innerText(),/(N|R|SR|SSR|UR) (黄金の古銭|交易商の印章|琥珀の星砂|黄金王の羅針盤|太陽王の聖杯)/);
+
    assert.equal(await row.getByRole('button',{name:'受取済み',exact:true}).isDisabled(),true);
    await sandbox.getByRole('button',{name:'ショップ',exact:true}).click();
    const sword=sandbox.getByRole('heading',{name:/星断の剣/}).locator('..');
