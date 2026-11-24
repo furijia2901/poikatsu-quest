@@ -17,7 +17,112 @@ const server=http.createServer((req,res)=>{
    await context.route('**/*',r=>r.request().url().startsWith(url+'/')?r.continue():r.abort());
    const page=await context.newPage(),errors=[];
    page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
-   await page.goto(url);await page.locator('button[data-tab="expedition90"]').waitFor();
+   await page.goto(url);await page.locator('nav[data-ui92="1"]').waitFor();
+   const {GROUPS}=require('../ui92.js');
+   async function gotoTab(id){
+    if(id==='home'){
+     await page.locator('[data-pq92-group="home"]').click();
+     assert.equal(await page.locator('#home.panel.active').isVisible(),true,'home must open');
+     return;
+    }
+    const leaf=page.locator('button[data-tab="'+id+'"]');
+    if(!await leaf.isVisible()){
+     const g=GROUPS.find(x=>x.tabs.includes(id));
+     await page.locator('[data-pq92-group="'+g.id+'"]').click();
+    }
+    await leaf.click();
+    assert.equal(await page.locator('#'+id+'.panel.active').isVisible(),true,id+' must open');
+   }
+   assert.equal(await page.locator('[data-pq92-group]').count(),6);
+   assert.equal(await page.locator('nav[data-ui92] button[data-tab]').count(),28);
+   const navBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   for(const g of GROUPS)for(const id of g.tabs)await gotoTab(id);
+
+   const {SCREEN_LAYOUTS}=require('../ui92.js');
+   for(const [id,def] of Object.entries(SCREEN_LAYOUTS)){
+    await gotoTab(id);
+    const screen=page.locator('#'+id);
+    assert.equal(await screen.getAttribute('data-ui92-sections'),'1',id+' section mapping');
+    const original=screen.locator(def.selector);
+    assert.equal(await original.count(),(def.keep||[]).length+def.views.flatMap(v=>v[1]).length);
+    for(let i=0;i<def.views.length;i++){
+     await screen.locator('[data-pq92-screen-choice="'+i+'"]').click();
+     const expected=new Set([...(def.keep||[]),...def.views[i][1]]);
+     for(let j=0;j<await original.count();j++)assert.equal(await original.nth(j).isVisible(),expected.has(j),id+' view '+i+' section '+j);
+    }
+    await screen.locator('[data-pq92-screen-choice="0"]').click();
+   }
+   await gotoTab('settings92');
+   console.log('PASS all composite screen views '+viewport.width+'px');
+   assert.equal(await page.locator('#settings92 #cloud-panel').isVisible(),true);
+   const settings=page.locator('#settings92');
+   assert.equal(await settings.getAttribute('data-ui92-settings'),'1');
+   assert.equal(await settings.locator('#cloud-status').isVisible(),true);
+   assert.equal(await settings.locator('#cloud-email').isVisible(),true);
+   assert.equal(await settings.locator('#web-migration').isVisible(),false);
+   await settings.locator('[data-pq92-settings-choice="1"]').click();
+   assert.equal(await settings.locator('#web-migration').isVisible(),true);
+   assert.equal(await settings.locator('#pq-v8-backup').isVisible(),true);
+   assert.equal(await settings.locator('#pq-backup-preview-v8').isVisible(),true);
+   assert.equal(await settings.locator('#cloud-email').isVisible(),false);
+   await settings.locator('[data-pq92-settings-choice="2"]').click();
+   assert.equal(await settings.getByRole('button',{name:'🔎 競合・復旧を診断',exact:true}).isVisible(),true);
+   assert.equal(await settings.getByRole('button',{name:'🧪 遠征テストモードへ',exact:true}).isVisible(),true);
+   assert.equal(await settings.locator('#cloud-status').isVisible(),true);
+   await settings.locator('[data-pq92-settings-choice="0"]').click();
+   console.log('PASS settings subviews and original controls '+viewport.width+'px');
+   assert.equal(await page.locator('#cloud-panel').count(),1);
+   await gotoTab('home');
+   assert.equal(await page.locator('#cloud-panel').isVisible(),false);
+   const home=page.locator('#home');
+   assert.equal(await home.locator('#pq92-home-today').isVisible(),true);
+   assert.equal(await home.locator('#equipmentList').isVisible(),false);
+   assert.equal(await home.locator('#classes').isVisible(),false);
+   assert.equal(await home.locator('[data-pq92-shortcut]').count(),6);
+   await home.locator('[data-pq92-home-view="profile"]').click();
+   assert.equal(await home.locator('#classes').isVisible(),true);
+   assert.equal(await home.locator('#guildHeadline').isVisible(),false);
+   await home.locator('[data-pq92-home-view="equipment"]').click();
+   assert.equal(await home.locator('#equipmentList').isVisible(),true);
+   assert.equal(await home.getByRole('button',{name:/1回引く（100G）/}).isVisible(),true);
+   await home.locator('[data-pq92-home-view="today"]').click();
+   for(const id of ['quests','outdoor60','expedition90','missions','grand50','season13']){
+    await home.locator('[data-pq92-shortcut="'+id+'"]').click();
+    assert.equal(await page.locator('#'+id+'.active').isVisible(),true);
+    if(id==='expedition90')assert.equal(await page.locator('#expedition90 .pq9-hero').isVisible(),true);
+    await gotoTab('home');
+   }
+   assert.ok(await home.locator('.pq92-shortcuts').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'home shortcuts overflow');
+   console.log('PASS home views and quick links '+viewport.width+'px');
+
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),navBefore,'navigation must not change game or storage');
+   assert.ok(await page.locator('.pq92-categories').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'categories overflow');
+   await page.locator('#home').getByRole('button',{name:'📜 依頼を見る',exact:true}).click();
+   assert.equal(await page.locator('#quests.active').isVisible(),true,'legacy shortcut still works');
+   assert.equal(await page.locator('[data-pq92-group="activity"]').getAttribute('aria-pressed'),'true');
+   console.log('PASS all 28 UI screens, 6 categories, navigation isolation '+viewport.width+'px');
+   for(const width of [320,360,390,749,750,820,1120,1121,1280,1920]){
+    await page.setViewportSize({width,height:850});
+    await gotoTab('home');
+    assert.ok(await page.locator('.pq92-categories').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'category overflow '+width);
+    assert.ok(await home.locator('.pq92-shortcuts').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'shortcut overflow '+width);
+    await gotoTab('expedition90');
+    assert.ok(await page.locator('#expedition90').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'expedition overflow '+width);
+    await gotoTab('home');
+   }
+   await page.setViewportSize(viewport);
+   if(viewport.width<750){
+    await page.locator('[data-pq92-group="activity"]').click();
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),false);
+    await page.locator('[data-pq92-group="activity"]').click();
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),true);
+    await page.locator('#quests h2').first().click();
+    assert.equal(await page.locator('#pq92-subnav').isVisible(),false);
+   }
+   console.log('PASS responsive widths 320–1920 and mobile dismissal');
+
    async function seed(){
     await page.evaluate(()=>{
      const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -27,7 +132,7 @@ const server=http.createServer((req,res)=>{
    }
    await seed();
    const base=await page.evaluate(()=>localStorage.getItem('poikatsu-quest-v01'));
-   await page.locator('button[data-tab="expedition90"]').click();
+   await gotoTab('expedition90');
    const panel=page.locator('#expedition90');
    assert.equal(await panel.isVisible(),true);
    assert.equal(await panel.locator('#pq9-shop').isVisible(),false);
@@ -53,8 +158,8 @@ const server=http.createServer((req,res)=>{
    assert.match(await panel.locator('#pq9-battle').innerText(),/TURN 2/);
    await panel.getByRole('button',{name:'戦闘を中断',exact:true}).click();
    assert.equal(await panel.locator('#pq9-battle').isVisible(),false);
-   await page.reload();await seed();
-   await page.locator('button[data-tab="expedition90"]').click();
+   await page.reload();await page.locator('nav[data-ui92="1"]').waitFor();await seed();
+   await gotoTab('expedition90');
    await panel.locator('[data-pq9-view="shop"]').click();
    assert.equal(await lantern.getByRole('button',{name:'獲得済み',exact:true}).isDisabled(),true);
    assert.match(await panel.locator('.pq9-hero').innerText(),/星灯のランタン/);
