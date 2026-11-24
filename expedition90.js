@@ -379,6 +379,32 @@
     }catch(e){syncMessage='診断中止：'+e.message;}
     finally{syncChecking=false;paint();}
    };
+   const cloudSync=add(rewards,'button',syncChecking?'同期処理中…':'☁️ 星晶石を同期（専用台帳）');cloudSync.type='button';cloudSync.disabled=syncChecking||!!storageError||!activeScope.startsWith('account:');
+   cloudSync.onclick=async()=>{
+    if(syncChecking||storageError||activeScope!==scopeNow()||!activeScope.startsWith('account:'))return;
+    const scope=activeScope,uid=scope.slice(8);
+    const check=()=>{if(scopeNow()!==scope)throw Error('アカウントが変わりました');};
+    const table='/rest/v1/pq_expedition_receipts';
+    const adapter={
+     read:async()=>{
+      check();await cloudEnsureToken();check();
+      const claims=[];
+      for(let offset=0;offset<=50000;offset+=500){
+       const rows=await cloudRequest(table+'?user_id=eq.'+encodeURIComponent(uid)+'&select=receipt_id&order=receipt_id.asc&limit=500&offset='+offset);
+       check();if(!Array.isArray(rows))throw Error('クラウド台帳の形式不正');
+       claims.push(...rows.map(x=>x.receipt_id));if(rows.length<500)return validateLedger({version:1,claims});
+      }
+      throw Error('クラウド台帳が上限を超えています');
+     },
+     insert:async(ids)=>{
+      for(let i=0;i<ids.length;i+=100){check();await cloudEnsureToken();check();await cloudRequest(table+'?on_conflict=user_id,receipt_id',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(ids.slice(i,i+100).map(receipt_id=>({user_id:uid,receipt_id})))});check();}
+     }
+    };
+    syncChecking=true;syncMessage='専用台帳を照合中…';paint();
+    try{await syncReceipts(localStorage,scope,adapter);check();syncMessage='✓ 星晶石の同期完了。通常セーブは変更していません。';}
+    catch(e){if(scopeNow()===scope)syncMessage='同期中止：'+e.message+'。端末の記録は保持されています。専用テーブルが未設定の場合は導入が必要です。';}
+    finally{syncChecking=false;paint();}
+   };
    const options=rewardOptions(d,map,battle);
    const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
    const allBtn=add(rewards,'button','受取可能な報酬を一括受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length||!!storageError;
