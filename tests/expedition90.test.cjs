@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward}=require('../expedition90.js');
+const {period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync}=require('../expedition90.js');
 const now=Date.parse('2026-11-24T03:00:00Z');
 const date=d=>d+'T03:00:00Z';
 const session=(id,d,cat='walk')=>({id,completedAt:date(d),mission:{cat}});
@@ -78,4 +78,9 @@ check('same claim on two devices merges once',()=>{const a={version:1,claims:[ri
 check('divergent device receipts union',()=>{const a={version:1,claims:[rid('market','chest')]},b={version:1,claims:[rid('trail','boss')]};assert.equal(ledgerBalance(mergeLedgers(a,b)),45);assert.deepEqual(mergeLedgers(a,b),mergeLedgers(b,a));assert.deepEqual(mergeLedgers(a,mergeLedgers(a,b)),mergeLedgers(a,b));});
 check('detect stale overwrite and old backup',()=>{const a={version:1,claims:[rid('market','chest')]};assert.deepEqual(ledgerLoss(undefined,a),a.claims);assert.deepEqual(ledgerLoss(a,a),[]);});
 check('claim and union do not mutate inputs',()=>{const a=emptyLedger(),before=JSON.stringify([a,full,done,map]);const b=claimReward(a,done,map,null,rid('market','chest'));mergeLedgers(a,b.ledger);assert.equal(JSON.stringify([a,full,done,map]),before);});
+
+check('cloud plan legacy saves identical',()=>{const p=planLedgerSync({gold:5},{gold:5},1);assert.equal(p.status,'identical');assert.equal(p.balance,0);});
+check('cloud plan unions disjoint receipts only',()=>{const a={gold:5,expedition90Rewards:{version:1,claims:[rid('market','chest')]}},b={gold:5,expedition90Rewards:{version:1,claims:[rid('trail','boss')]}};const before=JSON.stringify([a,b]),p=planLedgerSync(a,b,3);assert.equal(p.status,'ledger-only');assert.equal(p.balance,45);assert.equal(p.revision,3);assert.equal(p.onlyLocal.length,1);assert.equal(p.onlyRemote.length,1);assert.equal(JSON.stringify([a,b]),before);});
+check('cloud plan refuses other save differences',()=>{assert.equal(planLedgerSync({gold:1},{gold:2},2).status,'blocked-other-data');assert.equal(planLedgerSync({x:{a:1,b:2}},{x:{b:2,a:1}},2).status,'identical');});
+check('cloud plan rejects invalid revision and malformed ledger',()=>{assert.throws(()=>planLedgerSync({}, {},0));assert.throws(()=>planLedgerSync({}, {expedition90Rewards:null},1));});
 console.log(n+' checks passed');
