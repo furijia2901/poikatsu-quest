@@ -371,7 +371,7 @@
    const hero=add(panel,'section','','pq9-hero');
    add(hero,'p','VER.9.0 · STAR EXPEDITION','pq9-note');
    add(hero,'h2','星巡り遠征');
-   const display=shopError?null:readDisplay(localStorage,activeScope,owned);if(display)add(hero,'strong',SHOP[display].icon+' '+SHOP[display].name+'（遠征展示中）');
+   let display=null;try{if(!shopError)display=readDisplay(localStorage,activeScope,owned);}catch(e){shopError=e.message;}if(display)add(hero,'strong',SHOP[display].icon+' '+SHOP[display].name+'（遠征展示中）');
    add(hero,'p',d.period.start+' ～ '+d.period.end+'（日本時間）');
    add(hero,'strong',d.rank+'　｜　'+d.cleared+' / '+d.total+' 地点攻略');
    bar(hero,d.cleared,d.total,'遠征全体の攻略進捗');
@@ -537,6 +537,18 @@
     button.disabled=got||shopBusy||!!storageError||!!shopError||(activeScope==='guest'&&(!w||w.balance<item.cost));button.onclick=()=>buy(id);
     if(got){const eq=add(card,'button',display===id?'展示解除':'遠征に展示');eq.type='button';eq.onclick=()=>{if(scopeNow()!==activeScope)return;try{setDisplay(localStorage,activeScope,readOwned(localStorage,activeScope),display===id?null:id);}catch(e){shopMessage=e.message;}paint();};}
    }
+   const backupBtn=add(shop,'button','📥 遠征専用バックアップを書き出す');backupBtn.type='button';backupBtn.disabled=!!storageError||!!shopError;
+   backupBtn.onclick=()=>{
+    if(scopeNow()!==activeScope)return;
+    try{
+     const ledger=readReceipts(localStorage,activeScope),items=readOwned(localStorage,activeScope);
+     const backup={format:'poikatsu-quest-expedition-backup',version:1,createdAt:new Date().toISOString(),scope:activeScope,ledger,owned:items,display:readDisplay(localStorage,activeScope,items)};
+     const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'})),a=document.createElement('a');
+     a.href=url;a.download='pq-expedition-'+backup.createdAt.replace(/[:.]/g,'-')+'.json';document.body.append(a);
+     try{a.click();shopMessage='遠征バックアップのダウンロードを開始しました。保存先を確認してね。';}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+    }catch(e){shopMessage='バックアップ失敗：'+e.message;}paint();
+   };
+   add(shop,'p','遠征バックアップは保管・照合用。購入履歴の安全な復元はクラウド同期で行います。ゲスト台帳のインポートは未対応です。','pq9-note');
    const collection=add(shop,'section','','pq9-step');add(collection,'h3','📖 遠征コレクション '+owned.length+'/'+Object.keys(SHOP).length);
    bar(collection,owned.length,Object.keys(SHOP).length,'コレクション達成度');
    for(const m of collectionMilestones(previewLedger,owned)){add(collection,'p',(m.done?'✓ ':'◇ ')+m.name+'　'+Math.min(m.value,m.target)+'/'+m.target,'pq9-note');}
