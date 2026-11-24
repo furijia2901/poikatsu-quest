@@ -95,6 +95,28 @@
   output.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px';
   let prepared=null, generation=0;
   const safety=document.createElement('p');safety.className='cloud-note';safety.setAttribute('aria-live','polite');
+  const stage=document.createElement('button');stage.type='button';stage.textContent='復元候補を端末内の隔離領域で検証';stage.disabled=true;
+  stage.addEventListener('click',()=>{
+   let stageKey,reserveKey;
+   try{
+    if(!prepared||JSON.stringify(s)!==prepared.snapshot)throw Error('端末データが変化しました。再比較してね');
+    if(typeof cloud==='undefined'||cloud.busy||cloud.checking)throw Error('同期処理中は検証できません');
+    const before=localStorage.getItem(KEY);
+    if(!before||!equal(JSON.parse(before),JSON.parse(prepared.snapshot)))throw Error('端末の保存内容が一致しません');
+    const id=crypto.randomUUID();
+    stageKey='pq-restore-stage-'+id;reserveKey='pq-restore-reserve-'+id;
+    if(localStorage.getItem(stageKey)!==null||localStorage.getItem(reserveKey)!==null)throw Error('隔離領域の衝突');
+    localStorage.setItem(stageKey,before);
+    const store={read:()=>localStorage.getItem(stageKey),reserve:v=>localStorage.setItem(reserveKey,v),readReserved:()=>localStorage.getItem(reserveKey),write:v=>localStorage.setItem(stageKey,v)};
+    const result=restoreTransaction(store,before,prepared.candidate);
+    if(localStorage.getItem(KEY)!==before||JSON.stringify(s)!==prepared.snapshot)throw Error('検証中に実セーブが変化しました');
+    safety.textContent='🟢 隔離復元検証PASS：'+result+'。実セーブとクラウドは変更していません。';
+   }catch(e){safety.textContent='⚠️ 隔離復元検証中止：'+e.message;}
+   finally{
+    try{if(stageKey)localStorage.removeItem(stageKey);if(reserveKey)localStorage.removeItem(reserveKey);}
+    catch(e){safety.textContent+='／隔離領域の削除に失敗しました。';}
+   }
+  });
   const rescue=document.createElement('button');rescue.type='button';rescue.textContent='復元前の退避用バックアップを保存';rescue.disabled=true;
   rescue.addEventListener('click',()=>{
    try{
@@ -106,10 +128,10 @@
     document.body.appendChild(a);
     try{a.click();safety.textContent='退避ファイルのダウンロードを開始しました。保存先を確認してね。復元はまだ行いません。';}
     finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-   }catch(e){safety.textContent='⚠️ '+e.message;rescue.disabled=true;prepared=null;}
+   }catch(e){safety.textContent='⚠️ '+e.message;rescue.disabled=true;stage.disabled=true;prepared=null;}
   });
   input.addEventListener('change',async()=>{
-   const run=++generation;prepared=null;rescue.disabled=true;safety.textContent='';
+   const run=++generation;prepared=null;rescue.disabled=true;stage.disabled=true;safety.textContent='';
    const f=input.files&&input.files[0];if(!f)return;
    output.textContent='比較中…';
    try{
@@ -126,7 +148,7 @@
     const r=compare(current,data);
     const result=restorePreparation(current,parsed);
     safety.textContent=result.issues.length?'復元準備：要確認 — '+result.issues.join('／'):result.identical?'復元準備：一致のため不要':'復元準備：基本チェック通過。完全な復元可能性は未保証です。';
-    if(!result.issues.length&&!result.identical){prepared=result;rescue.disabled=false;}
+    if(!result.issues.length&&!result.identical){prepared={...result,candidate:clone(data)};rescue.disabled=false;stage.disabled=false;}
     output.textContent=(r.identical?'🟢 一致：復元不要':'⚠️ 差分あり：自動復元は禁止')+
      '\nバックアップ日時：'+parsed.createdAt+
      '\n異なるトップレベル項目：'+r.changed+'件'+
@@ -145,7 +167,7 @@
    const results=runRestoreTests(),passed=results.filter(x=>x.pass).length;
    report.textContent=passed+'/'+results.length+' PASS\n'+results.map(x=>(x.pass?'✅ ':'❌ ')+x.name).join('\n')+'\n※メモリ上の架空データのみ。実際のセーブ・クラウドは変更していません。';
   });
-  wrap.append(heading,note,input,output,safety,rescue,test,report);panel.appendChild(wrap);
+  wrap.append(heading,note,input,output,safety,rescue,stage,test,report);panel.appendChild(wrap);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
