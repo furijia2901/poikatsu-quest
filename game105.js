@@ -149,7 +149,7 @@
   const search=el('input');search.type='search';search.placeholder='コンテンツを検索（例：ガチャ、散歩）';search.setAttribute('aria-label','コンテンツ検索');dialog.append(search);
   const filters=el('div','','pq105-menu-filters');dialog.append(filters);
   const body=el('div','','pq105-menu-content');dialog.append(body);
-  const foot=el('div','','pq105-menu-foot');button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
+  const foot=el('div','','pq105-menu-foot');for(const [kind,label] of [['inventory','🎒 総合持ち物'],['gacha','🌠 ガチャセンター'],['codex','📖 総合図鑑']])button(foot,label,()=>{dialog.close();window.PQ105Collection?.open?.(kind,false);});button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
   document.body.append(dialog);
   let group='all';
   const groups=[...new Map(entries.map(e=>[e.groupId,e.group])).entries()];
@@ -180,7 +180,7 @@
    back.disabled=history.length<2;const entry=byId.get(id);caption.textContent=(entry?.group||'')+' / '+(entry?.label||id);
   }
   const observer=new MutationObserver(sync);
-  for(const panel of main.querySelectorAll(':scope > .panel'))observer.observe(panel,{attributes:true,attributeFilter:['class']});
+  for(const panel of main.querySelectorAll(':scope > .panel'))observer.observe(panel,{attributes:true,attributeFilter:['class'],childList:true});
   sync();
  }
  function mount(){
@@ -215,6 +215,7 @@
   document.head.append(style);
   mountHome(nav);
   window.PQ105Profile?.mount();
+  window.PQ105Collection?.mount(nav);
   const dialog=el('dialog');dialog.id='pq105-title';dialog.setAttribute('aria-label','POIKATSU QUEST タイトル画面');
   dialog.append(landscape(),el('div','','pq105-shade'));
   const stage=el('div','','pq105-stage');dialog.append(stage);
