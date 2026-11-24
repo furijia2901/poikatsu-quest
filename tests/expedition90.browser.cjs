@@ -169,15 +169,15 @@ const server=http.createServer((req,res)=>{
    const codexBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
    await panel.locator('[data-pq9-view="codex"]').click();
    const codex=panel.locator('#pq10-codex');
-   assert.match(await codex.innerText(),/図鑑達成 2 \/ 39 種/);
-   assert.equal(await codex.locator('[data-codex-id]').count(),39);
+   assert.match(await codex.innerText(),/図鑑達成 2 \/ 40 種/);
+   assert.equal(await codex.locator('[data-codex-id]').count(),40);
    await codex.getByLabel('図鑑 分類',{exact:true}).selectOption('gear');
    assert.equal(await codex.locator('[data-codex-id]').count(),8);
    await codex.getByLabel('図鑑 収集状況',{exact:true}).selectOption('found');
    assert.equal(await codex.locator('[data-codex-id]').count(),1);
    assert.match(await codex.innerText(),/星灯のランタン/);
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),codexBefore,'codex must be read-only');
-   console.log('PASS 39-entry codex and filtering '+viewport.width+'px');
+   console.log('PASS 40-entry codex and filtering '+viewport.width+'px');
 
 
    assert.equal(await page.evaluate(()=>localStorage.getItem('poikatsu-quest-v01')),base,'ordinary save unchanged by expedition');
@@ -242,7 +242,7 @@ const server=http.createServer((req,res)=>{
    assert.match(await sandbox.innerText(),/1：(?:N|R|SR|SSR|UR) /);
    console.log('PASS isolated summon, shared wallet and result '+viewport.width+'px');
    await sandbox.getByRole('button',{name:'図鑑',exact:true}).click();
-   assert.match(await sandbox.innerText(),/図鑑達成 3 \/ 39 種/);
+   assert.match(await sandbox.innerText(),/図鑑達成 3 \/ 40 種/);
    await sandbox.getByLabel('図鑑 分類',{exact:true}).selectOption('gacha');
    await sandbox.getByLabel('図鑑 収集状況',{exact:true}).selectOption('found');
    assert.equal(await sandbox.locator('[data-codex-id]').count(),1);
@@ -250,6 +250,22 @@ const server=http.createServer((req,res)=>{
    await sandbox.getByLabel('図鑑 収集状況',{exact:true}).selectOption('missing');
    assert.equal(await sandbox.locator('[data-codex-id]').count(),9);
    console.log('PASS sandbox codex filters '+viewport.width+'px');
+   await sandbox.getByRole('button',{name:'戦闘',exact:true}).click();
+   await sandbox.getByRole('button',{name:'戦闘を終了して遠征へ',exact:true}).click();
+   assert.equal(await sandbox.getByRole('button',{name:'隠しボスに挑戦',exact:true}).isDisabled(),true);
+   await sandbox.getByRole('button',{name:'隠しボス解放条件を試す',exact:true}).click();
+   await sandbox.getByRole('button',{name:'炎',exact:true}).click();
+   await sandbox.getByRole('button',{name:'隠しボスに挑戦',exact:true}).click();
+   assert.match(await sandbox.innerText(),/虚空の星喰竜ノヴァ/);
+   for(const label of ['星脈斬','防御','防御','星界奥義'])await sandbox.getByRole('button',{name:label,exact:true}).click();
+   assert.match(await sandbox.innerText(),/形態 2 \/ 2/);
+   for(const label of ['防御','防御','星界奥義','防御','星脈斬'])await sandbox.getByRole('button',{name:label,exact:true}).click();
+   assert.match(await sandbox.innerText(),/勝利！/);
+   await sandbox.getByRole('button',{name:'勝利報酬を受取',exact:true}).click();
+   assert.match(await sandbox.innerText(),/星晶石 ＋40/);
+   assert.equal(await sandbox.getByRole('button',{name:'勝利報酬を受取',exact:true}).isDisabled(),true);
+   console.log('PASS hidden boss two-phase combat and single claim '+viewport.width+'px');
+
 
 
    console.log('PASS enhanced combat, sword effect, status and cleanse '+viewport.width+'px');
