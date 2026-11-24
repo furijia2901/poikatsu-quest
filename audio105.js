@@ -56,8 +56,8 @@
   const observer=new MutationObserver(sync);
   for(const panel of main.querySelectorAll(':scope > .panel'))observer.observe(panel,{attributes:true,attributeFilter:['class']});
   observer.observe(title,{attributes:true,attributeFilter:['open']});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();else if(prefs.enabled&&!paused)activate();});
-  window.addEventListener('pagehide',suspend);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){suspend();stopPreview();}else if(prefs.enabled&&!paused)activate();});
+  window.addEventListener('pagehide',()=>{suspend();stopPreview();});
   document.addEventListener('click',e=>{
    if(!e.isTrusted||paused||document.hidden||!prefs.enabled||e.target.closest('#pq105-audio'))return;
    if(!e.target.closest('button'))return;
