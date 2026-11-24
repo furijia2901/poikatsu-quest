@@ -15,7 +15,31 @@
  ]);
  function titleTarget(id){return TITLE_LINKS.find(x=>x.id===id)?.target??null;}
  function stars(n=64){return Array.from({length:n},(_,i)=>({x:(i*173.31+51)%1200,y:(i*79.73+12)%690,r:i%7===0?2:0.85,opacity:0.35+(i%5)*0.12}));}
- if(typeof module==='object'&&module.exports){module.exports={VERSION,TITLE_LINKS,NEWS,titleTarget,stars};return;}
+
+ const HOME_LINKS=Object.freeze([
+  ['quests','📜','クエスト','日常の依頼'],
+  ['outdoor60','👟','散歩・外出','外出ミッション'],
+  ['expedition90','🌌','星巡り遠征','週間の大冒険'],
+  ['adventure','⚔️','冒険','戦闘と探索'],
+  ['town','🏰','街づくり','施設の発展'],
+  ['craft','⚒️','工房・仲間','装備と育成'],
+  ['grand50','🪙','収益記録','ポイ活の記録'],
+  ['missions','🏆','任務・称号','実績と報酬'],
+  ['season13','🌠','シーズン','シーズン報酬'],
+  ['event31','🎁','祭典ガチャ','イベント収集'],
+  ['story','📖','物語・実績','冒険の軌跡'],
+  ['settings92','⚙️','設定','セーブ・同期']
+ ].map(Object.freeze));
+ const HOME_FEATURES=Object.freeze([
+  ['expedition90','STAR EXPLORER','星巡り遠征','星界の秘宝と隠しボスに挑戦しよう。','🌌','expedition'],
+  ['outdoor60','OUTDOOR QUEST','散歩・外出','いつもの外出を冒険に変えよう。','🌿','outdoor'],
+  ['town','STARLIGHT TOWN','星あかりの街','集めたゴールドで施設を育てよう。','🏰','town']
+ ].map(Object.freeze));
+ function homeStatus(source={}){
+  const safe=(key,fallback)=>typeof source[key]==='string'&&source[key].trim()?source[key].trim().slice(0,120):fallback;
+  return {name:safe('name','冒険者'),subtitle:safe('subtitle','日常を冒険に。'),level:safe('level','Lv. —'),gold:safe('gold','🪙 — G'),energy:safe('energy','⚡ —'),xp:safe('xp','EXP —'),progress:Math.max(0,Math.min(100,Number(source.progress)||0))};
+ }
+ if(typeof module==='object'&&module.exports){module.exports={VERSION,TITLE_LINKS,NEWS,titleTarget,stars,HOME_LINKS,HOME_FEATURES,homeStatus};return;}
  function el(tag,text='',cls=''){const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;return e;}
  function button(parent,label,action,cls=''){const b=el('button',label,cls);b.type='button';b.onclick=action;parent.append(b);return b;}
  const NS='http://www.w3.org/2000/svg';
@@ -41,6 +65,56 @@
   for(const [x,y] of [[555,549],[606,491],[606,526],[658,568]])svgNode('rect',{x:x-2,y,width:4,height:10,rx:2,fill:'#e7bb70',stroke:'none',opacity:'.9'},castle);
   svgNode('path',{d:'M0 743Q240 665 412 728T780 711T1200 722V800H0Z',fill:'#0b1428'},svg);
   return svg;
+ }
+
+ function mountHome(nav){
+  const dashboard=document.getElementById('pq92-home-today');
+  if(!dashboard||document.getElementById('pq105-home'))return;
+  const panel=el('div','','pq105-home');panel.id='pq105-home';
+  const go=(id,view=null)=>{
+   const leaf=nav.querySelector('button[data-tab="'+id+'"]');if(!leaf)return;
+   leaf.click();if(view)document.querySelector('[data-pq92-home-view="'+view+'"]')?.click();
+  };
+  const heading=el('div','','pq105-home-head');heading.append(el('span','ADVENTURER LOBBY','pq105-overline'),el('h2','星灯のロビー'));panel.append(heading);
+  const profile=el('section','','pq105-profile');profile.setAttribute('aria-label','冒険者ステータス');
+  const emblem=el('div','✦','pq105-emblem');emblem.setAttribute('aria-hidden','true');
+  const copy=el('div','','pq105-profile-copy'),name=el('strong'),subtitle=el('small'),level=el('span','','pq105-level');
+  copy.append(level,name,subtitle);profile.append(emblem,copy);
+  button(profile,'プロフィール',()=>go('home','profile'),'pq105-small-button');
+  const xp=el('div','','pq105-xp');const xpText=el('small'),progress=el('progress');progress.max=100;progress.setAttribute('aria-label','冒険者EXP進捗');xp.append(xpText,progress);profile.append(xp);panel.append(profile);
+  const currency=el('div','','pq105-currency'),gold=el('strong'),energy=el('strong');
+  for(const [label,value] of [['ゴールド',gold],['エネルギー',energy]]){const tile=el('div','','pq105-balance');tile.append(el('small',label),value);currency.append(tile);}
+  panel.append(currency);
+  const feature=el('section','','pq105-feature');feature.setAttribute('aria-label','おすすめコンテンツ');
+  const featureCopy=el('div','','pq105-feature-copy'),featureKicker=el('span','','pq105-overline'),featureTitle=el('h3'),featureText=el('p'),featureIcon=el('div','','pq105-feature-icon');
+  featureIcon.setAttribute('aria-hidden','true');featureCopy.append(featureKicker,featureTitle,featureText);feature.append(featureCopy,featureIcon);
+  const featureBottom=el('div','','pq105-feature-bottom');let selected=0;
+  const prev=button(featureBottom,'‹',()=>select(selected-1),'pq105-arrow');prev.setAttribute('aria-label','前のおすすめ');
+  const open=button(featureBottom,'コンテンツへ',()=>go(HOME_FEATURES[selected][0]),'pq105-feature-go');
+  const next=button(featureBottom,'›',()=>select(selected+1),'pq105-arrow');next.setAttribute('aria-label','次のおすすめ');
+  feature.append(featureBottom);const dots=el('div','','pq105-feature-dots');feature.append(dots);
+  const dotButtons=HOME_FEATURES.map((x,i)=>{const b=button(dots,'●',()=>select(i));b.setAttribute('aria-label',x[2]+'を表示');return b;});
+  function select(i){selected=(i+HOME_FEATURES.length)%HOME_FEATURES.length;const [,kicker,title,text,icon,theme]=HOME_FEATURES[selected];feature.dataset.theme=theme;featureKicker.textContent=kicker;featureTitle.textContent=title;featureText.textContent=text;featureIcon.textContent=icon;dotButtons.forEach((b,j)=>b.setAttribute('aria-pressed',String(j===selected)));}
+  select(0);panel.append(feature);
+  const menu=el('section','','pq105-home-menu');menu.append(el('h3','冒険メニュー'),el('p','遊びたいコンテンツを選択','pq105-overline'));
+  const grid=el('div','','pq105-home-grid');
+  for(const [id,icon,title,note] of HOME_LINKS){const b=button(grid,'',()=>go(id),'pq105-home-tile');b.dataset.pq105HomeLink=id;const mark=el('span',icon,'pq105-tile-icon');mark.setAttribute('aria-hidden','true');b.append(mark,el('strong',title),el('small',note));}
+  menu.append(grid);panel.append(menu);
+  const tools=el('div','','pq105-home-tools');
+  button(tools,'🎒 装備・持ち物',()=>go('home','equipment'));
+  button(tools,'🌟 冒険者育成',()=>go('home','profile'));
+  button(tools,'🎁 ログイン報酬',()=>{go('chronicle');document.querySelector('#chronicle [data-pq92-screen-choice="3"]')?.click();});
+  panel.append(tools);
+  // Preserve all original dashboard children and controls. New sections are read-only.
+  dashboard.prepend(panel);
+  function read(){
+   const readText=id=>document.getElementById(id)?.textContent||'';
+   return homeStatus({name:readText('heroTitle'),subtitle:readText('heroSubtitle'),level:readText('lv'),gold:readText('gold'),energy:readText('energy'),xp:readText('xp'),progress:parseFloat(document.getElementById('xpbar')?.style.width)||0});
+  }
+  function refresh(){const p=read();name.textContent=p.name;subtitle.textContent=p.subtitle;level.textContent=p.level;gold.textContent=p.gold;energy.textContent=p.energy;xpText.textContent=p.xp;progress.value=p.progress;}
+  const observer=new MutationObserver(refresh);
+  for(const id of ['heroTitle','heroSubtitle','lv','gold','energy','xp','xpbar']){const n=document.getElementById(id);if(n)observer.observe(n,{childList:true,characterData:true,subtree:true,attributes:id==='xpbar',attributeFilter:id==='xpbar'?['style']:undefined});}
+  refresh();
  }
  function mount(){
   const main=document.querySelector('main'),nav=document.querySelector('nav[data-ui92="1"]');
@@ -69,7 +143,9 @@
    '@keyframes pq105-twinkle{from{opacity:.25}to{opacity:.95}}'+
    '@media(max-height:550px){#pq105-title .pq105-stage{justify-content:flex-start;padding-top:20px}#pq105-title .pq105-logo{font-size:clamp(29px,7vw,48px)}}'+
    '@media(prefers-reduced-motion:reduce){#pq105-title *{animation:none!important;transition:none!important}}';
+  style.textContent+="\n#pq105-home{display:grid;gap:14px;margin-bottom:20px;color:#f7f2ff;min-width:0}\n#pq105-home section{margin:0;padding:14px;min-width:0;box-sizing:border-box}\n#pq105-home .pq105-home-head h2{font-size:clamp(22px,3vw,32px);margin:3px 0;color:#fff2d0;letter-spacing:.06em}\n#pq105-home .pq105-overline{font-size:10px;letter-spacing:.15em;color:#d4c5ee;margin:0}\n#pq105-home .pq105-profile{display:grid;grid-template-columns:54px minmax(0,1fr) auto;align-items:center;gap:12px;background:radial-gradient(ellipse at 15% 0%,#574471,#25324e 68%);border:1px solid #a58fc2;border-radius:16px}\n#pq105-home .pq105-emblem{width:52px;height:52px;display:grid;place-items:center;border:1px solid #d9bc84;border-radius:14px;font-size:29px;color:#ffedbb;background:radial-gradient(#71608b,#2b2d4c);text-shadow:0 0 12px #fff0b4}\n#pq105-home .pq105-profile-copy{display:grid;gap:2px;min-width:0}\n#pq105-home .pq105-profile-copy strong{font-size:18px;overflow-wrap:anywhere}\n#pq105-home .pq105-profile-copy small{font-size:11px;color:#ded5f3;overflow-wrap:anywhere}\n#pq105-home .pq105-level{font-size:12px;font-weight:700;color:#ffdf97}\n#pq105-home .pq105-small-button{font-size:11px;padding:7px 9px;min-height:44px;margin:0;background:#283451;border:1px solid #9f8ac2}\n#pq105-home .pq105-xp{grid-column:1/-1;display:grid;gap:5px}\n#pq105-home progress{width:100%;height:9px;accent-color:#d0b0fa}\n#pq105-home .pq105-currency{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n#pq105-home .pq105-balance{padding:10px 12px;border:1px solid #665b86;border-radius:12px;background:#1e2943;display:grid;gap:4px;overflow-wrap:anywhere}\n#pq105-home .pq105-balance small{font-size:11px;color:#cec4e3}\n#pq105-home .pq105-balance strong{color:#f6e3b2;font-size:16px}\n#pq105-home .pq105-feature{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 80px;gap:12px;border:1px solid #ad99d4;border-radius:16px;background:radial-gradient(ellipse at 90% 0%,#6e5389,#242d4b 65%)}\n#pq105-home .pq105-feature[data-theme=outdoor]{background:radial-gradient(ellipse at 90% 0%,#3d7763,#1e3547 70%);border-color:#85c1a9}\n#pq105-home .pq105-feature[data-theme=town]{background:radial-gradient(ellipse at 90% 0%,#946d40,#3b2e44 70%);border-color:#d5b780}\n#pq105-home .pq105-feature-copy h3{font-size:clamp(18px,3vw,25px);color:#ffe4ae;margin:8px 0}\n#pq105-home .pq105-feature-copy p{font-size:13px;line-height:1.65;margin:0;color:#f1ecfb}\n#pq105-home .pq105-feature-icon{font-size:52px;align-self:center;text-align:center;filter:drop-shadow(0 0 14px #f4dfff88)}\n#pq105-home .pq105-feature-bottom{grid-column:1/-1;display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:8px}\n#pq105-home .pq105-feature-bottom button{margin:0;min-height:44px;border:1px solid #c0a5d7;background:#2f3655}\n#pq105-home .pq105-feature-go{font-weight:750;background:linear-gradient(110deg,#d7b77f,#f5e3b9)!important;color:#201b33}\n#pq105-home .pq105-feature-dots{grid-column:1/-1;display:flex;justify-content:center;gap:3px}\n#pq105-home .pq105-feature-dots button{min-height:36px;min-width:40px;margin:0;padding:0;border:0;background:transparent;color:#b4a3c7;font-size:10px}\n#pq105-home .pq105-feature-dots button[aria-pressed=true]{color:#ffe3a7}\n#pq105-home .pq105-home-menu{background:#18253c;border:1px solid #56698a;border-radius:16px}\n#pq105-home .pq105-home-menu h3{margin:0 0 6px;color:#f3e8ff;font-size:18px}\n#pq105-home .pq105-home-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}\n#pq105-home .pq105-home-tile{min-width:0;margin:0;padding:12px 5px;display:grid;justify-items:center;align-content:start;gap:5px;min-height:96px;background:linear-gradient(145deg,#354563,#232d47);border:1px solid #677b9e;color:#fff;text-align:center}\n#pq105-home .pq105-tile-icon{font-size:25px;line-height:1.15}\n#pq105-home .pq105-home-tile strong{font-size:12px;overflow-wrap:anywhere}\n#pq105-home .pq105-home-tile small{font-size:10px;line-height:1.3;color:#c7d4ed;overflow-wrap:anywhere;font-weight:400}\n#pq105-home .pq105-home-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}\n#pq105-home .pq105-home-tools button{margin:0;padding:10px 4px;font-size:11px;background:#27334f;border:1px solid #7a719d}\n@media(max-width:360px){#pq105-home .pq105-home-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#pq105-home .pq105-profile{grid-template-columns:44px minmax(0,1fr)}#pq105-home .pq105-emblem{width:42px;height:42px}#pq105-home .pq105-small-button{grid-column:1/-1}#pq105-home .pq105-home-tools{grid-template-columns:1fr}}\n";
   document.head.append(style);
+  mountHome(nav);
   const dialog=el('dialog');dialog.id='pq105-title';dialog.setAttribute('aria-label','POIKATSU QUEST タイトル画面');
   dialog.append(landscape(),el('div','','pq105-shade'));
   const stage=el('div','','pq105-stage');dialog.append(stage);
