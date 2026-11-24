@@ -39,7 +39,21 @@
   const safe=(key,fallback)=>typeof source[key]==='string'&&source[key].trim()?source[key].trim().slice(0,120):fallback;
   return {name:safe('name','冒険者'),subtitle:safe('subtitle','日常を冒険に。'),level:safe('level','Lv. —'),gold:safe('gold','🪙 — G'),energy:safe('energy','⚡ —'),xp:safe('xp','EXP —'),progress:Math.max(0,Math.min(100,Number(source.progress)||0))};
  }
- if(typeof module==='object'&&module.exports){module.exports={VERSION,TITLE_LINKS,NEWS,titleTarget,stars,HOME_LINKS,HOME_FEATURES,homeStatus};return;}
+
+ // Menu state is session-only. Never modify the original save or browser history.
+ function searchMenu(entries,query=''){
+  const normalize=x=>String(x??'').normalize('NFKC').toLocaleLowerCase('ja').trim();
+  const words=normalize(query).split(/\s+/).filter(Boolean);
+  return entries.filter(e=>words.every(w=>normalize([e.label,e.group,e.id,e.keywords||''].join(' ')).includes(w)));
+ }
+ function recordVisit(history,id,limit=16){
+  if(typeof id!=='string'||!id)return history.slice();
+  if(history.at(-1)===id)return history.slice();
+  return [...history,id].slice(-limit);
+ }
+ function recentVisits(history,limit=6){return [...new Set([...history].reverse())].slice(0,limit);}
+ const MENU_ALIASES=Object.freeze({home:'ロビー プロフィール 装備 持ち物',quests:'ポイ活 依頼 ミッション',outdoor60:'散歩 ポケモンGO 歩数',grand50:'収益 ガチャ 台帳 施設',expedition90:'星巡り 遠征 星晶石 召喚 図鑑 隠しボス',adventure:'ダンジョン 戦闘 探索',town:'街 建築 施設',craft:'工房 仲間 装備 製作',settings92:'設定 セーブ バックアップ テスト アカウント 同期',story:'物語 実績',chronicle:'ログイン 報酬 魔王 衣装'});
+ if(typeof module==='object'&&module.exports){module.exports={VERSION,TITLE_LINKS,NEWS,titleTarget,stars,HOME_LINKS,HOME_FEATURES,homeStatus,searchMenu,recordVisit,recentVisits,MENU_ALIASES};return;}
  function el(tag,text='',cls=''){const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;return e;}
  function button(parent,label,action,cls=''){const b=el('button',label,cls);b.type='button';b.onclick=action;parent.append(b);return b;}
  const NS='http://www.w3.org/2000/svg';
@@ -116,6 +130,59 @@
   for(const id of ['heroTitle','heroSubtitle','lv','gold','energy','xp','xpbar']){const n=document.getElementById(id);if(n)observer.observe(n,{childList:true,characterData:true,subtree:true,attributes:id==='xpbar',attributeFilter:id==='xpbar'?['style']:undefined});}
   refresh();
  }
+
+ function mountMenu(main,nav,openTitle){
+  if(document.getElementById('pq105-menu'))return;
+  const leaves=[...nav.querySelectorAll('button[data-tab]')];
+  const entries=leaves.map(b=>{const groupId=b.closest('[data-pq92-leaves]')?.dataset.pq92Leaves||'other';const g=nav.querySelector('[data-pq92-group="'+groupId+'"]');return {id:b.dataset.tab,label:b.textContent.trim(),group:g?.textContent.trim()||'その他',groupId,keywords:MENU_ALIASES[b.dataset.tab]||'',button:b};});
+  const byId=new Map(entries.map(e=>[e.id,e]));
+  const active=()=>main.querySelector(':scope > .panel.active')?.id||'home';
+  let history=[active()],recent=[active()],last=active(),returning=null,opener=null;
+  const toolbar=el('div','','pq105-toolbar');toolbar.id='pq105-toolbar';toolbar.setAttribute('aria-label','ゲームナビゲーション');
+  const back=button(toolbar,'‹ 戻る',()=>{if(history.length<2)return;const dest=history[history.length-2];history=history.slice(0,-1);returning=dest;byId.get(dest)?.button.click();sync();},'pq105-back');
+  const caption=el('div','','pq105-breadcrumb');caption.setAttribute('aria-live','polite');toolbar.append(caption);
+  button(toolbar,'⌂ ホーム',()=>byId.get('home')?.button.click(),'pq105-toolbar-home');
+  const launcher=button(toolbar,'☰ メニュー',()=>showMenu(),'pq105-menu-launch');launcher.setAttribute('aria-haspopup','dialog');
+  const dialog=el('dialog');dialog.id='pq105-menu';dialog.setAttribute('aria-labelledby','pq105-menu-heading');
+  const head=el('div','','pq105-menu-head');const heading=el('h2','総合メニュー');heading.id='pq105-menu-heading';head.append(heading);
+  button(head,'閉じる',()=>dialog.close());dialog.append(head);
+  const search=el('input');search.type='search';search.placeholder='コンテンツを検索（例：ガチャ、散歩）';search.setAttribute('aria-label','コンテンツ検索');dialog.append(search);
+  const filters=el('div','','pq105-menu-filters');dialog.append(filters);
+  const body=el('div','','pq105-menu-content');dialog.append(body);
+  const foot=el('div','','pq105-menu-foot');button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
+  document.body.append(dialog);
+  let group='all';
+  const groups=[...new Map(entries.map(e=>[e.groupId,e.group])).entries()];
+  const tabs=[['all','すべて'],['recent','最近使った画面'],...groups];
+  const controls=new Map();
+  for(const [id,label] of tabs){const b=button(filters,label,()=>{group=id;render();});b.dataset.pq105MenuGroup=id;controls.set(id,b);}
+  function go(id){const e=byId.get(id);if(!e)return;dialog.close();e.button.click();sync();launcher.focus();}
+  function render(){
+   for(const [id,b] of controls)b.setAttribute('aria-pressed',String(id===group));
+   let selected=group==='recent'?recentVisits(recent).map(id=>byId.get(id)).filter(Boolean):entries.filter(e=>group==='all'||e.groupId===group);
+   selected=searchMenu(selected,search.value);body.replaceChildren();
+   body.append(el('p',selected.length+' 件のコンテンツ','pq105-menu-count'));
+   const displayGroups=group==='recent'?[['recent','最近使った画面']]:groups;
+   for(const [id,label] of displayGroups){
+    const matches=selected.filter(e=>id==='recent'||e.groupId===id);if(!matches.length)continue;
+    const sec=el('section','','pq105-menu-group');sec.append(el('h3',label));const grid=el('div','','pq105-menu-grid');
+    for(const e of matches){const b=button(grid,e.label,()=>go(e.id));b.dataset.pq105MenuId=e.id;if(e.id===active())b.setAttribute('aria-current','page');}
+    sec.append(grid);body.append(sec);
+   }
+   if(!selected.length)body.append(el('p','一致するコンテンツがありません。検索条件を変えてください。'));
+  }
+  search.addEventListener('input',render);
+  function showMenu(){if(dialog.open)return;opener=document.activeElement;group='all';search.value='';render();dialog.showModal();search.focus();}
+  dialog.addEventListener('close',()=>{if(opener?.isConnected&&!document.querySelector('#pq105-title[open]'))opener.focus();});
+  function sync(){
+   const id=active();if(id!==last){if(returning===id)returning=null;else history=recordVisit(history,id);recent=recordVisit(recent,id,48);last=id;}
+   const panel=main.querySelector(':scope > .panel.active');if(panel&&toolbar.parentNode!==panel)panel.prepend(toolbar);
+   back.disabled=history.length<2;const entry=byId.get(id);caption.textContent=(entry?.group||'')+' / '+(entry?.label||id);
+  }
+  const observer=new MutationObserver(sync);
+  for(const panel of main.querySelectorAll(':scope > .panel'))observer.observe(panel,{attributes:true,attributeFilter:['class']});
+  sync();
+ }
  function mount(){
   const main=document.querySelector('main'),nav=document.querySelector('nav[data-ui92="1"]');
   if(!main||!nav||document.getElementById('pq105-title')||typeof HTMLDialogElement==='undefined'||!HTMLDialogElement.prototype.showModal)return;
@@ -144,6 +211,7 @@
    '@media(max-height:550px){#pq105-title .pq105-stage{justify-content:flex-start;padding-top:20px}#pq105-title .pq105-logo{font-size:clamp(29px,7vw,48px)}}'+
    '@media(prefers-reduced-motion:reduce){#pq105-title *{animation:none!important;transition:none!important}}';
   style.textContent+="\n#pq105-home{display:grid;gap:14px;margin-bottom:20px;color:#f7f2ff;min-width:0}\n#pq105-home section{margin:0;padding:14px;min-width:0;box-sizing:border-box}\n#pq105-home .pq105-home-head h2{font-size:clamp(22px,3vw,32px);margin:3px 0;color:#fff2d0;letter-spacing:.06em}\n#pq105-home .pq105-overline{font-size:10px;letter-spacing:.15em;color:#d4c5ee;margin:0}\n#pq105-home .pq105-profile{display:grid;grid-template-columns:54px minmax(0,1fr) auto;align-items:center;gap:12px;background:radial-gradient(ellipse at 15% 0%,#574471,#25324e 68%);border:1px solid #a58fc2;border-radius:16px}\n#pq105-home .pq105-emblem{width:52px;height:52px;display:grid;place-items:center;border:1px solid #d9bc84;border-radius:14px;font-size:29px;color:#ffedbb;background:radial-gradient(#71608b,#2b2d4c);text-shadow:0 0 12px #fff0b4}\n#pq105-home .pq105-profile-copy{display:grid;gap:2px;min-width:0}\n#pq105-home .pq105-profile-copy strong{font-size:18px;overflow-wrap:anywhere}\n#pq105-home .pq105-profile-copy small{font-size:11px;color:#ded5f3;overflow-wrap:anywhere}\n#pq105-home .pq105-level{font-size:12px;font-weight:700;color:#ffdf97}\n#pq105-home .pq105-small-button{font-size:11px;padding:7px 9px;min-height:44px;margin:0;background:#283451;border:1px solid #9f8ac2}\n#pq105-home .pq105-xp{grid-column:1/-1;display:grid;gap:5px}\n#pq105-home progress{width:100%;height:9px;accent-color:#d0b0fa}\n#pq105-home .pq105-currency{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n#pq105-home .pq105-balance{padding:10px 12px;border:1px solid #665b86;border-radius:12px;background:#1e2943;display:grid;gap:4px;overflow-wrap:anywhere}\n#pq105-home .pq105-balance small{font-size:11px;color:#cec4e3}\n#pq105-home .pq105-balance strong{color:#f6e3b2;font-size:16px}\n#pq105-home .pq105-feature{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 80px;gap:12px;border:1px solid #ad99d4;border-radius:16px;background:radial-gradient(ellipse at 90% 0%,#6e5389,#242d4b 65%)}\n#pq105-home .pq105-feature[data-theme=outdoor]{background:radial-gradient(ellipse at 90% 0%,#3d7763,#1e3547 70%);border-color:#85c1a9}\n#pq105-home .pq105-feature[data-theme=town]{background:radial-gradient(ellipse at 90% 0%,#946d40,#3b2e44 70%);border-color:#d5b780}\n#pq105-home .pq105-feature-copy h3{font-size:clamp(18px,3vw,25px);color:#ffe4ae;margin:8px 0}\n#pq105-home .pq105-feature-copy p{font-size:13px;line-height:1.65;margin:0;color:#f1ecfb}\n#pq105-home .pq105-feature-icon{font-size:52px;align-self:center;text-align:center;filter:drop-shadow(0 0 14px #f4dfff88)}\n#pq105-home .pq105-feature-bottom{grid-column:1/-1;display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:8px}\n#pq105-home .pq105-feature-bottom button{margin:0;min-height:44px;border:1px solid #c0a5d7;background:#2f3655}\n#pq105-home .pq105-feature-go{font-weight:750;background:linear-gradient(110deg,#d7b77f,#f5e3b9)!important;color:#201b33}\n#pq105-home .pq105-feature-dots{grid-column:1/-1;display:flex;justify-content:center;gap:3px}\n#pq105-home .pq105-feature-dots button{min-height:36px;min-width:40px;margin:0;padding:0;border:0;background:transparent;color:#b4a3c7;font-size:10px}\n#pq105-home .pq105-feature-dots button[aria-pressed=true]{color:#ffe3a7}\n#pq105-home .pq105-home-menu{background:#18253c;border:1px solid #56698a;border-radius:16px}\n#pq105-home .pq105-home-menu h3{margin:0 0 6px;color:#f3e8ff;font-size:18px}\n#pq105-home .pq105-home-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}\n#pq105-home .pq105-home-tile{min-width:0;margin:0;padding:12px 5px;display:grid;justify-items:center;align-content:start;gap:5px;min-height:96px;background:linear-gradient(145deg,#354563,#232d47);border:1px solid #677b9e;color:#fff;text-align:center}\n#pq105-home .pq105-tile-icon{font-size:25px;line-height:1.15}\n#pq105-home .pq105-home-tile strong{font-size:12px;overflow-wrap:anywhere}\n#pq105-home .pq105-home-tile small{font-size:10px;line-height:1.3;color:#c7d4ed;overflow-wrap:anywhere;font-weight:400}\n#pq105-home .pq105-home-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}\n#pq105-home .pq105-home-tools button{margin:0;padding:10px 4px;font-size:11px;background:#27334f;border:1px solid #7a719d}\n@media(max-width:360px){#pq105-home .pq105-home-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#pq105-home .pq105-profile{grid-template-columns:44px minmax(0,1fr)}#pq105-home .pq105-emblem{width:42px;height:42px}#pq105-home .pq105-small-button{grid-column:1/-1}#pq105-home .pq105-home-tools{grid-template-columns:1fr}}\n";
+  style.textContent+="\n.pq105-toolbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:6px;margin:0 0 10px;padding:7px;background:#151f36;border:1px solid #6e608d;border-radius:12px;grid-column:1/-1;min-width:0}\n.pq105-toolbar button{margin:0;min-height:44px;padding:7px 9px;font-size:12px;background:#293652;color:#f4efff;border:1px solid #6f7e9d;white-space:normal}\n.pq105-toolbar .pq105-menu-launch{border-color:#d9c396;color:#ffe5b1;background:#403754}\n.pq105-breadcrumb{font-size:11px;color:#d5c8ed;min-width:0;overflow-wrap:anywhere;line-height:1.4}\n#pq105-menu{box-sizing:border-box;width:min(760px,calc(100% - 24px));max-height:calc(100dvh - 24px);overflow:auto;background:#172139;color:#f4f0ff;border:1px solid #ad99d4;border-radius:18px;padding:18px;box-shadow:0 20px 65px #0009}\n#pq105-menu::backdrop{background:#060b1bd9}\n#pq105-menu .pq105-menu-head{display:flex;align-items:center;justify-content:space-between;gap:12px}\n#pq105-menu h2{margin:0;font-size:22px;color:#ffe4ad}\n#pq105-menu button{min-height:44px;margin:0;padding:9px 10px;background:#293653;color:#f2efff;border:1px solid #6d7da0;border-radius:9px;white-space:normal;overflow-wrap:anywhere;cursor:pointer}\n#pq105-menu button[aria-pressed=true],#pq105-menu button[aria-current=page]{border-color:#e7cb90;background:#544369;color:#ffe6b0}\n#pq105-menu input{box-sizing:border-box;width:100%;min-height:46px;margin:14px 0 10px;padding:10px;border-radius:10px;border:1px solid #aa98cf;background:#101a30;color:#f5f1ff;font:inherit}\n#pq105-menu .pq105-menu-filters{display:flex;flex-wrap:wrap;gap:6px}\n#pq105-menu .pq105-menu-filters button{font-size:12px}\n#pq105-menu .pq105-menu-count{font-size:12px;color:#c9bfdf}\n#pq105-menu .pq105-menu-group{margin:10px 0;padding:10px;border:1px solid #5e6c8c;background:#202c47;border-radius:12px}\n#pq105-menu .pq105-menu-group h3{margin:0 0 9px;font-size:14px;color:#dbc6ff}\n#pq105-menu .pq105-menu-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}\n#pq105-menu .pq105-menu-grid button{font-size:13px;min-width:0}\n#pq105-menu .pq105-menu-foot button{width:100%}\n#pq105-menu :is(button,input):focus-visible,.pq105-toolbar button:focus-visible{outline:2px solid #ffe2a2;outline-offset:2px}\n@media(max-width:520px){.pq105-toolbar{grid-template-columns:auto 1fr auto;gap:5px}.pq105-breadcrumb{grid-column:1/-1;grid-row:1}.pq105-toolbar button{font-size:11px}#pq105-menu .pq105-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#pq105-menu{padding:12px}}\n";
   document.head.append(style);
   mountHome(nav);
   const dialog=el('dialog');dialog.id='pq105-title';dialog.setAttribute('aria-label','POIKATSU QUEST タイトル画面');
@@ -172,6 +240,7 @@
   function openTitle(){if(dialog.open)return;destination=null;showActions();dialog.showModal();start.focus();}
   dialog.addEventListener('cancel',e=>{e.preventDefault();if(!detail.hidden)showActions();});
   dialog.addEventListener('close',()=>{const target=destination;destination=null;if(target){const leaf=nav.querySelector('button[data-tab="'+target+'"]');leaf?.click();if(target==='settings92')document.querySelector('#settings92 [data-pq92-settings-choice="0"]')?.click();document.querySelector('#'+target+' h2')?.scrollIntoView({block:'start'});}});
+  mountMenu(main,nav,openTitle);
   openTitle();
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
