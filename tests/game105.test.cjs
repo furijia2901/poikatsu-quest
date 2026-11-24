@@ -19,3 +19,13 @@ assert.equal(homeStatus({level:'Lv.5',gold:'🪙 250G',energy:'⚡ 2',progress:6
 assert.equal(homeStatus({progress:200}).progress,100);assert.equal(homeStatus({progress:-1}).progress,0);assert.equal(homeStatus({progress:'bad'}).progress,0);
 assert.equal(homeStatus({name:''}).name,'冒険者');
 console.log('PASS home links, featured routes and read-only HUD projection');
+
+const {searchMenu,recordVisit,recentVisits,MENU_ALIASES}=require('../game105.js');
+const entries=[{id:'expedition90',label:'星巡り遠征',group:'冒険',keywords:MENU_ALIASES.expedition90},{id:'outdoor60',label:'散歩・外出',group:'活動',keywords:MENU_ALIASES.outdoor60}];
+assert.deepEqual(searchMenu(entries,'  星晶石 冒険 ').map(x=>x.id),['expedition90']);
+assert.deepEqual(searchMenu(entries,'ポケモンＧＯ').map(x=>x.id),['outdoor60']);
+assert.equal(searchMenu(entries,'無関係').length,0);
+assert.equal(searchMenu(entries,'').length,2);
+const h=['home','quests'];assert.deepEqual(recordVisit(h,'quests'),h);assert.deepEqual(recordVisit(h,'town',2),['quests','town']);assert.deepEqual(h,['home','quests']);
+assert.deepEqual(recentVisits(['home','quests','home','town']),['town','home','quests']);
+console.log('PASS menu search, full-width normalization, bounded history and deduplicated recent routes');
