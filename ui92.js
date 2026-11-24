@@ -198,7 +198,7 @@
   polishCopy(main);
   const selectHome=organizeHome(id=>byId.get(id)?.click());
   const originalTab=tab;
-  tab=function(id){const result=originalTab.apply(this,arguments);current=id;group=groupFor(id);last.set(group,id);expanded=false;if(id==='home')selectHome?.('today');sync();return result;};
+  tab=function(id){const result=originalTab.apply(this,arguments);const changed=current!==id;current=id;group=groupFor(id);last.set(group,id);expanded=false;if(id==='home')selectHome?.('today');sync();if(changed)window.scrollTo({top:0,behavior:'instant'});return result;};
   for(const g of GROUPS){
    const b=document.createElement('button');b.type='button';b.className='pq92-category';b.dataset.pq92Group=g.id;b.setAttribute('aria-controls','pq92-subnav');
    const icon=document.createElement('span');icon.className='pq92-icon';icon.setAttribute('aria-hidden','true');icon.textContent=g.icon;
@@ -208,15 +208,21 @@
    for(const id of ids){const leaf=byId.get(id);if(!leaf)continue;leaf.textContent=LABELS[id]||leaf.textContent;leaf.type='button';list.append(leaf);}
    sub.append(list);lists.set(g.id,list);
    b.onclick=()=>{
-    if(group===g.id){expanded=!expanded;sync();return;}
+    if(group===g.id){if(g.id==='home'){byId.get('home')?.click();return;}expanded=!expanded;sync();return;}
     const target=byId.get(last.get(g.id))||ids.map(id=>byId.get(id)).find(Boolean);
     if(target)target.click();
-    expanded=true;sync();
+    expanded=g.id!=='home';sync();
    };
   }
   nav.replaceChildren(categories,sub);nav.dataset.ui92='1';
   const active=main.querySelector('.panel.active');if(active){current=active.id;group=groupFor(current);last.set(group,current);}
   sync();window.matchMedia('(max-width:749px)').addEventListener('change',sync);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&mobile()&&expanded){expanded=false;sync();buttons.get(group)?.focus();}});
+  document.addEventListener('pointerdown',e=>{if(mobile()&&expanded&&!nav.contains(e.target)){expanded=false;sync();}});
+  // The desktop HUD is redundant on home and occupies valuable width on medium displays.
+  const hud=document.getElementById('desktopHUD21');if(hud)hud.setAttribute('aria-label','冒険ステータス・補助情報');
+  main.classList.add('pq92-shell');
+
   const style=document.createElement('style');style.id='pq92-style';style.textContent=
    'main>nav.tabs[data-ui92]{gap:12px;overflow:auto;align-items:stretch}'+
    'main>nav.tabs[data-ui92]::before{content:"✦ メインメニュー";font-size:11px;letter-spacing:.12em}'+
@@ -257,6 +263,20 @@
    'main>.panel button:disabled{opacity:.48;cursor:not-allowed}main>.panel :is(button,input,select,summary):focus-visible{outline:2px solid #e8cc87;outline-offset:2px}'+
    'main>.panel :is(input:not([type="checkbox"]):not([type="radio"]),select){max-width:100%;min-width:0;border-radius:9px}'+
    '@media(prefers-reduced-motion:reduce){main>.panel button,main>nav.tabs button{transition:none!important;animation:none!important;transform:none!important}}'+
+   'main.pq92-shell{grid-template-rows:auto auto auto minmax(0,1fr);align-content:start;--pq92-nav-height:76px}'+
+   'main.pq92-shell>.panel{min-width:0;max-width:100%;overflow-wrap:anywhere}'+
+   'main.pq92-shell>.panel :is(img,svg,video,canvas,progress){max-width:100%}'+
+   'main.pq92-shell>.panel :is(.grid,.v20-grid,.ev32-layout,.v40-layout,.v41-layout,.ev31-grid)>*{min-width:0}'+
+   'main.pq92-shell>.panel pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}'+
+   '@media(min-width:1121px){main.pq92-shell{grid-template-columns:clamp(180px,14vw,230px) minmax(0,1fr) clamp(210px,19vw,300px)}main.pq92-shell .pq92-shortcuts{grid-template-columns:repeat(3,minmax(0,1fr))}'+
+   'main.pq92-shell #home[data-home-view="equipment"]{grid-template-columns:repeat(2,minmax(0,1fr))}main.pq92-shell #home.active[data-home-view="equipment"]{display:grid;gap:12px}main.pq92-shell #home[data-home-view="equipment"]>.pq92-home-nav{grid-column:1/-1}}'+
+   '@media(min-width:1600px){main.pq92-shell{grid-template-columns:240px minmax(0,1fr) 320px;max-width:1920px!important;margin-inline:auto!important}}'+
+   '@media(min-width:750px) and (max-width:1120px){main.pq92-shell{grid-template-columns:clamp(160px,22vw,200px) minmax(0,1fr)}main.pq92-shell #update20 .v20-grid{grid-template-columns:minmax(0,1fr)}}'+
+   '@media(max-width:749px){main.pq92-shell{padding-bottom:calc(var(--pq92-nav-height) + env(safe-area-inset-bottom) + 20px)!important}main.pq92-shell>.panel{margin-top:10px}'+
+   'main.pq92-shell>.panel section{padding:12px}main.pq92-shell>.panel :is(.ev32-layout,.v40-layout,.v41-layout,.v20-grid){grid-template-columns:minmax(0,1fr)!important}'+
+   'main.pq92-shell .pq92-screen-nav button{flex:1 1 40%;min-height:44px}main.pq92-shell .pq92-home-nav button{font-size:12px}'+
+   'main.pq92-shell #pq92-subnav{overscroll-behavior:contain;max-height:min(45dvh,320px)}main.pq92-shell :is(.pq92-screen-nav,.pq92-home-nav) button{touch-action:manipulation}}'+
+   '@media(max-width:360px){main.pq92-shell .pq92-categories{gap:2px}main.pq92-shell nav.tabs[data-ui92] .pq92-category{font-size:9px;padding-inline:0}main.pq92-shell .pq92-shortcuts{grid-template-columns:1fr}main.pq92-shell .pq92-home-nav button{font-size:11px}}'+
    '#settings92 #cloud-panel,#settings92 #web-migration{width:100%;min-width:0}'+
    '@media(max-width:749px){main>nav.tabs[data-ui92]{display:flex;flex-direction:column-reverse;gap:4px;overflow:visible;padding:6px 6px max(6px,env(safe-area-inset-bottom));}'+
    'main>nav.tabs[data-ui92]::before{display:none}.pq92-categories{grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;width:100%}'+
