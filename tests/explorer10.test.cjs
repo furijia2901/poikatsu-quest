@@ -107,4 +107,20 @@ check('hidden battle has two distinct predictable phases and is beatable at unlo
  assert.equal(rewardOptions(t.d,m,b,l).length,20);
 });
 
+
+const {battleFeedback,REGION_ART}=require('../expedition90.js');
+check('battle feedback reports exact HP delta without modifying state',()=>{
+ const b=fight('sword'),after=battleStep(b,'attack'),before=JSON.stringify([b,after]);
+ const f=battleFeedback(b,after,'attack');
+ assert.equal(f.enemyDamage,b.enemy.hp-after.enemy.hp);assert.equal(f.playerLoss,b.player.hp-after.player.hp);assert.equal(f.awakened,false);
+ assert.equal(battleFeedback(b,b,'cleanse'),null);assert.equal(JSON.stringify([b,after]),before);
+});
+check('awakening feedback only occurs on threshold transition',()=>{
+ let b=beginHiddenBattle(t.d,'fire',ledger(all),['sword'],'sword');
+ for(const action of ['skill','guard','guard'])b=battleStep(b,action);
+ const next=battleStep(b,'burst');assert.equal(battleFeedback(b,next,'burst').awakened,true);
+ assert.equal(battleFeedback(next,battleStep(next,'guard'),'guard').awakened,false);
+ assert.deepEqual(Object.keys(REGION_ART),['market','trail','citadel','all']);
+});
+
 console.log(n+' explorer checks passed');
