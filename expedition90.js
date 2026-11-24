@@ -134,7 +134,7 @@
   const note=t=>log.push('T'+b.turn+' '+t);
   let guarding=false;
   if(action==='attack'||action==='skill'){
-   const damage=Math.round((action==='skill'?36:21)*affinity(p.element,e.element));
+   const damage=Math.round((action==='skill'?(b.growth?.skill??36):(b.growth?.attack??21))*affinity(p.element,e.element));
    e.hp=Math.max(0,e.hp-damage);
    p.mp=action==='skill'?p.mp-2:Math.min(p.maxMp,p.mp+1);
    note(ACTIONS[action]+'：'+damage+'ダメージ');
@@ -166,6 +166,30 @@
   return version==='v1'&&!extra.length&&receiptId(week,route,kind)===id?REWARD_VALUES[kind]:null;
  }
  function emptyLedger(){return {version:1,claims:[]};}
+ // Ver.10.0: progression is derived exclusively from validated immutable receipts.
+ // Currency spending, retries and reloading never award EXP.
+ const EXPLORER_XP=Object.freeze({step1:10,step2:16,step3:24,chest:25,normal:30,boss:80,weekly:100});
+ const MAX_EXPLORER_LEVEL=30;
+ function explorerProgress(raw){
+  const claims=validateLedger(raw).claims;
+  const xp=claims.reduce((total,id)=>total+EXPLORER_XP[id.split(':')[3]],0);
+  let level=1,spent=0;
+  while(level<MAX_EXPLORER_LEVEL){
+   const need=100+20*(level-1);
+   if(xp-spent<need)break;
+   spent+=need;level++;
+  }
+  const maxed=level===MAX_EXPLORER_LEVEL,bonus=level-1;
+  return {xp,level,maxed,progress:maxed?0:xp-spent,next:maxed?0:100+20*bonus,
+   hp:120+bonus*2,attack:21+Math.floor(bonus/3),skill:36+Math.floor(bonus/2),
+   rank:level>=25?'星海の先駆者':level>=15?'星界の探検王':level>=8?'熟練探索者':level>=3?'星灯の探索者':'遠征見習い'};
+ }
+ function beginExplorerBattle(d,map,routeId,kind,element,ledger){
+  const b=beginBattle(d,map,routeId,kind,element);if(!b)return null;
+  const p=explorerProgress(ledger);
+  return {...b,player:{...b.player,hp:p.hp,maxHp:p.hp},growth:{level:p.level,attack:p.attack,skill:p.skill}};
+ }
+
  function validateLedger(raw){
   if(raw===undefined)return emptyLedger();
   if(!raw||raw.version!==1||!Array.isArray(raw.claims)||raw.claims.length>50000||Object.keys(raw).some(k=>!['version','claims'].includes(k)))throw Error('遠征台帳の形式不正');
@@ -364,9 +388,10 @@
   function show(text){message=text;paint();}
   function paint(){
    if(!dialog.open)return;
-   dialog.replaceChildren();add(dialog,'h2','🧪 Ver.9.1 遠征テストモード');
+   dialog.replaceChildren();add(dialog,'h2','🧪 Ver.10.0 遠征テストモード');
    add(dialog,'p','試験専用・本番反映なし。通常セーブ・端末台帳・クラウドには書き込みません。閉じると試験記録は破棄されます。');
    add(dialog,'strong','試験星晶石：'+sandboxWallet(t).balance+' 個 ／ 9/9地点仮クリア');
+   const growth=explorerProgress(t.ledger);add(dialog,'p','試験遠征 Lv.'+growth.level+' ／ 累計EXP '+growth.xp+' ／ '+growth.rank);
    button(dialog,'テストを終了',()=>dialog.close());
    button(dialog,'試験データをリセット',()=>{t=createSandbox();view='map';show('試験データを初期化しました');});
    const nav=add(dialog,'div','');
@@ -380,7 +405,7 @@
     for(const route of t.d.routes){const m=map.find(x=>x.id===route.id),p=section(dialog,route.icon+' '+route.title+' 3/3');add(p,'p',m.region+' ／ '+m.event.name);
      for(const br of m.branches)button(p,br.name+(m.selected.id===br.id?' ✓':''),()=>{t.choices[route.id]=br.id;paint();});
      add(p,'p','宝箱：'+m.selected.chest+'（解放済み）');
-     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginBattle(t.d,map,route.id,kind,t.element);view='battle';show('戦闘開始');},t.battle?.status==='active');
+     for(const kind of ['normal','boss'])button(p,FOES[route.id][kind].name,()=>{t.battle=beginExplorerBattle(t.d,map,route.id,kind,t.element,t.ledger);view='battle';show('戦闘開始');},t.battle?.status==='active');
     }
    }else if(view==='battle'){
     const p=section(dialog,'遠征バトル');
@@ -430,7 +455,7 @@
    '#expedition90 progress{width:100%;height:9px;accent-color:#e9c779}#expedition90 .pq9-note{color:#c7d2e9;font-size:.85rem;line-height:1.6}'+
    '#expedition90 .pq9-arena{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 0}#expedition90 .pq9-fighter{padding:12px;border-radius:14px;text-align:center;background:linear-gradient(160deg,#344660,#20263f);min-width:0}#expedition90 .pq9-fighter p{overflow-wrap:anywhere}#expedition90 .pq9-fighter-icon{font-size:clamp(2rem,8vw,3.5rem);margin:4px}#expedition90 .pq9-intent{padding:10px;border:1px solid #6f8fae;border-radius:10px;display:block}#expedition90 .pq9-danger{border-color:#edb27e;color:#ffd5a4;background:#50352f}#expedition90 .pq9-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}#expedition90 .pq9-actions button{white-space:normal;min-height:44px;overflow-wrap:anywhere}#expedition90 .pq9-route select{max-width:100%;padding:8px;border-radius:8px}';
 
-  style.textContent+='#expedition90 [hidden]{display:none!important}#expedition90 .pq9-menu{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:12px 0}#expedition90 .pq9-menu button{min-height:44px;white-space:normal;margin:0;padding:8px 4px}#expedition90 .pq9-menu button[aria-pressed=true]{border:1px solid #f1d292;background:#55486a;color:#fff4dc}#expedition90 .pq9-route{margin:10px 0;overflow-wrap:anywhere}#expedition90 .pq9-grid .pq9-route{margin:0}#expedition90 .pq9-route button{max-width:100%;white-space:normal;min-height:44px}#expedition90 .pq9-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse at 85% 5%,#8172b877,transparent 55%),radial-gradient(circle at 8% 90%,#2b799955,transparent 50%),linear-gradient(145deg,#202b49,#10172e)}#expedition90 .pq9-hero h2{letter-spacing:.04em}#expedition90 .pq9-mapline{border-left:2px solid #ad98dd;padding-left:12px;margin:10px 0}#expedition90 .pq9-win{border-color:#e9c779;box-shadow:inset 0 0 20px #b39b5830}#expedition90 .pq9-item-owned{border-color:#a5d9b1}#pq9-reveal{box-sizing:border-box;width:min(420px,calc(100% - 28px));max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #e9c779;border-radius:20px;padding:24px;background:radial-gradient(ellipse at 50% 0%,#64548c,#17213b 65%);color:#fff5db;text-align:center;box-shadow:0 12px 50px #0009}#pq9-reveal::backdrop{background:#050915cc}#pq9-reveal .pq9-reveal-icon{font-size:64px;margin:8px;animation:pq9-reveal .55s cubic-bezier(.2,.7,.2,1) both}#pq9-reveal button{min-height:44px;width:100%}@keyframes pq9-reveal{from{transform:scale(.6);opacity:.2}to{transform:scale(1);opacity:1}}@media(max-width:420px){#expedition90 .pq9-menu{grid-template-columns:repeat(2,minmax(0,1fr))}#expedition90 .pq9-arena{gap:6px}#expedition90 .pq9-fighter{padding:8px}}@media(prefers-reduced-motion:reduce){#pq9-reveal .pq9-reveal-icon{animation:none}}';
+  style.textContent+='#expedition90 [hidden]{display:none!important}#expedition90 .pq9-menu{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:12px 0}#expedition90 .pq9-menu button{min-height:44px;white-space:normal;margin:0;padding:8px 4px}#expedition90 .pq9-menu button[aria-pressed=true]{border:1px solid #f1d292;background:#55486a;color:#fff4dc}#expedition90 .pq9-route{margin:10px 0;overflow-wrap:anywhere}#expedition90 .pq9-grid .pq9-route{margin:0}#expedition90 .pq9-route button{max-width:100%;white-space:normal;min-height:44px}#expedition90 .pq9-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse at 85% 5%,#8172b877,transparent 55%),radial-gradient(circle at 8% 90%,#2b799955,transparent 50%),linear-gradient(145deg,#202b49,#10172e)}#expedition90 .pq9-hero h2{letter-spacing:.04em}#expedition90 .pq9-mapline{border-left:2px solid #ad98dd;padding-left:12px;margin:10px 0}#expedition90 .pq9-win{border-color:#e9c779;box-shadow:inset 0 0 20px #b39b5830}#expedition90 .pq9-item-owned{border-color:#a5d9b1}#pq9-reveal{box-sizing:border-box;width:min(420px,calc(100% - 28px));max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #e9c779;border-radius:20px;padding:24px;background:radial-gradient(ellipse at 50% 0%,#64548c,#17213b 65%);color:#fff5db;text-align:center;box-shadow:0 12px 50px #0009}#pq9-reveal::backdrop{background:#050915cc}#pq9-reveal .pq9-reveal-icon{font-size:64px;margin:8px;animation:pq9-reveal .55s cubic-bezier(.2,.7,.2,1) both}#pq9-reveal button{min-height:44px;width:100%}@keyframes pq9-reveal{from{transform:scale(.6);opacity:.2}to{transform:scale(1);opacity:1}}@media(max-width:420px){#expedition90 .pq9-menu{grid-template-columns:repeat(2,minmax(0,1fr))}#expedition90 .pq9-arena{gap:6px}#expedition90 .pq9-fighter{padding:8px}}@media(prefers-reduced-motion:reduce){#pq9-reveal .pq9-reveal-icon{animation:none}}';
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
@@ -443,7 +468,7 @@
    catch(e){rewardMessage='受取中止：'+e.message;refreshLedger();return 0;}
   }
 
-  const VIEWS=[['map','🧭 遠征'],['battle','⚔️ 戦闘'],['rewards','💎 報酬'],['shop','🏪 ショップ']];
+  const VIEWS=[['map','🧭 遠征'],['battle','⚔️ 戦闘'],['rewards','💎 報酬'],['shop','🏪 ショップ'],['growth','✨ 遠征育成']];
   function changeView(id){if(!VIEWS.some(v=>v[0]===id))return;view=id;paint();}
   function reveal(icon,title,body){
    if(typeof HTMLDialogElement==='undefined'||!HTMLDialogElement.prototype.showModal)return;
@@ -478,7 +503,7 @@
    const map=weeklyMap(d,choices,difficulty);
    panel.replaceChildren();
    const hero=add(panel,'section','','pq9-hero');
-   add(hero,'p','VER.9.1 · STAR EXPEDITION','pq9-note');
+   add(hero,'p','VER.10.0 · STAR EXPLORER','pq9-note');
    const testButton=add(hero,'button','🧪 遠征テストモード');testButton.type='button';testButton.onclick=()=>{if(!document.getElementById('pq91-sandbox'))mountSandbox(testButton);};
    add(hero,'h2','星巡り遠征');
    let display=null;try{if(!shopError)display=readDisplay(localStorage,activeScope,owned);}catch(e){shopError=e.message;}if(display)add(hero,'strong',SHOP[display].icon+' '+SHOP[display].name+'（遠征展示中）');
@@ -486,8 +511,22 @@
    add(hero,'strong',d.rank+'　｜　'+d.cleared+' / '+d.total+' 地点攻略');
    bar(hero,d.cleared,d.total,'遠征全体の攻略進捗');
    add(hero,'p','今週のポイ活 '+d.metrics.quests+'件 ／ 外出 '+d.metrics.outdoor+'件 ／ 両方達成 '+d.metrics.combinedDays+'日','pq9-note');
+   const growth=storageError?null:explorerProgress(previewLedger);
+   if(growth){add(hero,'strong','遠征 Lv.'+growth.level+' ｜ '+growth.rank);if(!growth.maxed)bar(hero,growth.progress,growth.next,'遠征レベル経験値');}
    const menu=add(panel,'div','','pq9-menu');menu.setAttribute('aria-label','遠征メニュー');
    for(const [id,label] of VIEWS){const b=add(menu,'button',label);b.type='button';b.dataset.pq9View=id;b.setAttribute('aria-pressed',String(view===id));b.onclick=()=>{changeView(id);panel.querySelector('[data-pq9-view="'+id+'"]')?.focus();};}
+   const growthBox=add(panel,'section','','pq9-route');growthBox.id='pq10-growth';growthBox.hidden=view!=='growth';
+   add(growthBox,'h3','✨ 遠征レベル・育成');
+   if(growth){
+    add(growthBox,'strong','Lv.'+growth.level+' ｜ '+growth.rank);
+    add(growthBox,'p','累計EXP '+growth.xp+' ／ '+(growth.maxed?'最大レベル到達':'次のレベルまで '+(growth.next-growth.progress)+' EXP'));
+    if(!growth.maxed)bar(growthBox,growth.progress,growth.next,'遠征育成EXP');
+    const grid=add(growthBox,'div','','pq9-grid');
+    for(const [label,value] of [['最大HP',growth.hp],['通常攻撃',growth.attack],['星脈斬',growth.skill]]){const card=add(grid,'div','','pq9-fighter');add(card,'p',label);add(card,'strong',String(value));}
+    const rules=add(growthBox,'details','');add(rules,'summary','EXP獲得条件');
+    for(const [label,key] of [['第1地点','step1'],['第2地点','step2'],['第3地点','step3'],['宝箱','chest'],['通常敵','normal'],['ボス','boss'],['週間達成','weekly']])add(rules,'p',label+'：'+EXPLORER_XP[key]+' EXP');
+    add(growthBox,'p','受取済みの遠征報酬から計算。星晶石を使ってもレベルは下がりません。週更新でリセットされません。同期済みの専用台帳から各端末で同じ値を計算します。戦闘開始時のレベルを使用します。','pq9-note');
+   }else add(growthBox,'p','台帳を確認できないため育成表示を停止しました。報酬画面で確認してください。');
    const settings=add(panel,'section','','pq9-route');settings.hidden=view!=='map';
    add(settings,'h3','🧭 今週の遠征マップ');
    add(settings,'p','分岐と難易度を選んで探索条件を確認しよう。既存の9地点攻略は変わりません。','pq9-note');
@@ -511,7 +550,7 @@
     add(battleBox,'strong','TURN '+battle.turn+' / 30');
     const arena=add(battleBox,'div','','pq9-arena');
     const heroCard=add(arena,'div','','pq9-fighter'),enemyCard=add(arena,'div','','pq9-fighter');
-    add(heroCard,'div','⚔️','pq9-fighter-icon');add(heroCard,'strong','遠征冒険者');
+    add(heroCard,'div','⚔️','pq9-fighter-icon');add(heroCard,'strong','遠征冒険者 Lv.'+(battle.growth?.level||1));
     add(heroCard,'p','HP '+battle.player.hp+'/'+battle.player.maxHp);
     bar(heroCard,battle.player.hp,battle.player.maxHp,'プレイヤーHP');
     add(heroCard,'p',ELEMENTS[battle.player.element]+'属性 ｜ MP '+battle.player.mp+'/'+battle.player.maxMp+' ｜ 薬 '+battle.player.potions,'pq9-note');
@@ -700,7 +739,8 @@
       if(battle||activeScope!==scopeNow())return;
       const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
       if(fresh.period.start!==selectedWeek){paint();return;}
-      battle=beginBattle(fresh,freshMap,route.id,kind,element);
+      if(storageError)return;
+      battle=beginExplorerBattle(fresh,freshMap,route.id,kind,element,readReceipts(localStorage,activeScope));
       if(battle)view='battle';paint();if(battle){const target=panel.querySelector('#pq9-battle h3');target?.focus();target?.scrollIntoView({block:'start'});}
      };
     }
@@ -721,7 +761,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
