@@ -19,3 +19,8 @@ assert.equal(Object.keys(SCREEN_LAYOUTS).length,24);
 for(const [id,def] of Object.entries(SCREEN_LAYOUTS)){const count=(def.keep||[]).length+def.views.flatMap(v=>v[1]).length;assert.ok(layoutValid(def,count),id);assert.ok(!layoutValid(def,count+1),id+' must fail open');}
 assert.ok(!layoutValid({views:[['a',[0]],['b',[0]]]},2));
 console.log('PASS composite view mapping and fail-open guard');
+
+const ui=fs.readFileSync('ui92.js','utf8');
+assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(ui),'UI layer must not persist or send data directly');
+assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(ui),'UI layer must not assign game or cloud state');
+console.log('PASS presentation-only source safety guard');
