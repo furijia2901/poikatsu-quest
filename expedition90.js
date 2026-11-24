@@ -1015,7 +1015,7 @@
      await cloudEnsureToken();if(scopeNow()!==scope)throw Error('アカウント変更');
      const batch=await cloudRequest('/rest/v1/pq_expedition_draws?user_id=eq.'+uid+'&select=draw_no,request_id,item_id&order=draw_no.asc&limit=500&offset='+offset);
      if(scopeNow()!==scope||!Array.isArray(batch))throw Error('召喚台帳確認失敗');
-     rows.push(...batch);if(batch.length<500)return saveDraws(localStorage,scope,rows);
+     rows.push(...batch);if(batch.length<500){if(!navigator.locks?.request)throw Error('安全な履歴同期を利用できません');return navigator.locks.request('pq10-draw-cache:'+scope,()=>{if(scopeNow()!==scope)throw Error('アカウント変更');return saveDraws(localStorage,scope,rows);});}
     }throw Error('召喚履歴上限');
    }
    const summon=add(panel,'section','','pq9-route');summon.id='pq10-gacha';summon.hidden=view!=='gacha';
@@ -1031,13 +1031,15 @@
    drawButton.disabled=drawBusy||shopBusy||!!storageError||!!shopError||!!drawError||!navigator.locks||(!pending&&(activeScope==='guest'?(!w||w.balance<GACHA_COST):!cloudReady()))||(activeScope!=='guest'&&!cloudReady());
    drawButton.onclick=async()=>{
     if(drawBusy||shopBusy||scopeNow()!==activeScope||!navigator.locks)return;
-    const scope=activeScope,key=PENDING_PREFIX+encodeURIComponent(scope);
-    if(!localStorage.getItem(key)&&!confirm('星晶石20個で召喚しますか？'))return;
+    const scope=activeScope,key=PENDING_PREFIX+encodeURIComponent(scope),requested=localStorage.getItem(key);
+    if(!requested&&!confirm('星晶石20個で召喚しますか？'))return;
     drawBusy=true;paint();
     try{
      await navigator.locks.request('pq10-request:'+scope,async()=>{
       if(scopeNow()!==scope)throw Error('アカウント変更');
-      let req=localStorage.getItem(key);if(!req){req=crypto.randomUUID();localStorage.setItem(key,req);}
+      let req=localStorage.getItem(key);
+      if(requested&&req!==requested){drawMessage='別の画面で確認済みです。履歴を確認してください。';return;}
+      if(!req){req=crypto.randomUUID();localStorage.setItem(key,req);}
       if(!validRequest(req))throw Error('未確認の召喚ID不正');
       let result;
       if(scope==='guest')result=await drawGuest(localStorage,scope,navigator.locks,req,secureRandom);
@@ -1054,7 +1056,7 @@
       if(!['drawn','duplicate','insufficient'].includes(result?.status))throw Error('召喚結果未確認');
       if(result.status==='insufficient')drawMessage='星晶石が不足しています。';
       else{const [rarity,name,icon]=GACHA_ITEMS[result.row.item_id];drawMessage=rarity+' '+name+' 獲得！';reveal(icon,rarity+' '+name,'遠征召喚コレクションに追加しました',rarity);}
-      localStorage.removeItem(key);
+      if(localStorage.getItem(key)===req)localStorage.removeItem(key);
      });
     }catch(e){if(scopeNow()===scope)drawMessage='召喚結果未確認：'+e.message+'。再確認ボタンで同じ要求を照会してください。';}
     finally{drawBusy=false;paint();}
