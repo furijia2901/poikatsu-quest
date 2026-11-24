@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {period,derive}=require('../expedition90.js');
+const {period,derive,weeklyMap}=require('../expedition90.js');
 const now=Date.parse('2026-11-24T03:00:00Z');
 const date=d=>d+'T03:00:00Z';
 const session=(id,d,cat='walk')=>({id,completedAt:date(d),mission:{cat}});
@@ -17,4 +17,14 @@ check('route unlock',()=>{const x=derive(state,now);assert.equal(x.routes[0].cle
 check('read only',()=>{const before=JSON.stringify(state);derive(state,now);assert.equal(JSON.stringify(state),before);});
 check('invalid rows',()=>{const x=derive({dailyQuestStats:{'2026-11-24':{count:-3}},questHistory:[null],outdoorQuest:{completedSessions:[null,{id:'x',completedAt:'bad'}]}},now);assert.equal(x.cleared,0);});
 check('all routes cleared',()=>{const x=structuredClone(state);x.dailyQuestStats['2026-11-25']={count:1};x.outdoorQuest.completedSessions.push(session('e','2026-11-25'),session('f','2026-11-25'),session('g','2026-11-25'));const d=derive(x,Date.parse('2026-11-25T12:00:00Z'));assert.equal(d.cleared,9);assert.equal(d.rank,'星巡りの英雄');});
+check('weekly map stable',()=>{const d=derive(state,now);assert.deepEqual(weeklyMap(d),weeklyMap(d));});
+check('weekly rotation',()=>{const a=weeklyMap(derive(state,now)),b=weeklyMap(derive(state,now+7*86400000));assert.ok(a.every((r,i)=>r.region!==b[i].region));});
+check('two branches per route',()=>assert.ok(weeklyMap(derive(state,now)).every(r=>r.branches.length===2&&r.branches[0].id!==r.branches[1].id)));
+check('branch selection',()=>{const d=derive(state,now),r=weeklyMap(d)[0];assert.equal(weeklyMap(d,{market:r.branches[1].id})[0].selected.id,r.branches[1].id);});
+check('invalid branch fallback',()=>{const d=derive(state,now),r=weeklyMap(d,{market:'invalid'},'invalid')[0];assert.equal(r.selected.id,r.branches[0].id);assert.equal(r.difficulty,'easy');});
+check('difficulty targets nondecreasing',()=>{const d=derive(state,now),a=weeklyMap(d),b=weeklyMap(d,{},'hard');assert.ok(a.every((r,i)=>r.branches.every((x,j)=>x.target<=b[i].branches[j].target)));});
+check('locked chest',()=>assert.ok(weeklyMap(derive({},now)).every(r=>!r.unlocked&&r.branches.every(b=>!b.ready))));
+check('eligible chest',()=>assert.equal(weeklyMap(derive(state,now))[0].branches[0].ready,true));
+check('event stable for same selection',()=>{const d=derive(state,now),r=weeklyMap(d)[0],choice={market:r.branches[1].id};assert.deepEqual(weeklyMap(d,choice)[0].event,weeklyMap(d,choice)[0].event);});
+check('map does not mutate derived state or choices',()=>{const d=derive(state,now),choice={market:'invalid'},before=JSON.stringify([d,choice]);weeklyMap(d,choice,'hard');assert.equal(JSON.stringify([d,choice]),before);});
 console.log(n+' checks passed');
