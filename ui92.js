@@ -24,7 +24,7 @@
   story:{selector:':scope > section',views:[['物語',[0]],['実績',[1]]]},
   chronicle:{selector:':scope > section',views:[['年代記',[0]],['魔王戦',[1]],['衣装',[2]],['ログイン報酬',[3]]]},
   records:{selector:':scope > section',views:[['冒険記録',[1]],['境界共闘',[0]]]},
-  update15:{selector:'.v15-grid > .v15-card',views:[['仲間の物語',[0]],['UR召喚',[1]],['レイド',[2]],['天文台',[3]]]},
+  update15:{selector:'.v15-card',views:[['仲間の物語',[0]],['UR召喚',[1]],['レイド',[2]],['天文台',[3]]]},
   update16:{selector:'.v16-grid > .v16-card',views:[['戦利品',[0]],['仲間装備',[1]],['召喚',[2]],['外見',[3]]]},
   update17:{selector:'.v17-grid > .v17-card',views:[['スキル',[0]],['レイド',[1]],['図鑑',[2]],['浮遊島',[3]]]},
   update18:{selector:'.v18-grid > .v18-card',views:[['装備製作',[0]],['覚醒進化',[1]],['施設',[2]],['討伐報酬',[3]]]},
@@ -74,6 +74,60 @@
  function groupFor(id){return GROUPS.find(g=>g.tabs.includes(id))?.id||'other';}
  if(typeof module==='object'&&module.exports){module.exports={GROUPS,LABELS,groupFor,SCREEN_LAYOUTS,layoutValid};return;}
 
+
+ function organizeSettings(settings,openTab){
+  const cloud=document.getElementById('cloud-panel'),migration=document.getElementById('web-migration');
+  if(!cloud||!migration||settings.dataset.ui92Settings)return;
+  const children=[...cloud.children],status=document.getElementById('cloud-status');
+  const config=document.getElementById('cloud-config'),auth=cloud.querySelector('.cloud-grid');
+  const authButtons=children.find(n=>n.querySelector('button[onclick="cloudLogin()"]'));
+  const actions=children.find(n=>n.contains(document.getElementById('cloud-upload')));
+  const tests=children.find(n=>n.contains(document.getElementById('cloud-reward-test-status')));
+  const recovery=children.find(n=>n.contains(document.getElementById('pq-recovery-preview-result')));
+  const backup=document.getElementById('pq-v8-backup'),preview=document.getElementById('pq-backup-preview-v8');
+  if(!status||!config||!auth||!authButtons||!actions||!tests||!recovery||!backup||!preview)return;
+  const el=(tag,txt='',cls='')=>{const n=document.createElement(tag);n.textContent=txt;if(cls)n.className=cls;return n;};
+  const nav=el('div','','pq92-screen-nav');nav.setAttribute('aria-label','セーブ管理メニュー');
+  const views=['同期・ログイン','バックアップ','診断・テスト'],groups=views.map((v,i)=>{const n=el('div','','pq92-settings-page');n.dataset.pq92SettingsPage=String(i);n.append(el('h3',v));return n;});
+  const [sync,backups,diagnostics]=groups;
+  // Move existing elements without recreating their controls, listeners or values.
+  sync.append(auth,authButtons,config);
+  for(const b of [...actions.children]){
+   const action=b.getAttribute('onclick')||'';
+   if(/^(backup|cloudBackupRemote)\(/.test(action))backups.append(b);
+   else if(/^cloudDiagnose\(/.test(action))diagnostics.append(b);
+   else sync.append(b);
+  }
+  backups.append(backup,preview);
+  diagnostics.append(tests,recovery);
+  const sandbox=el('button','🧪 遠征テストモードへ','alt');sandbox.type='button';sandbox.onclick=()=>{openTab('expedition90');document.querySelector('#expedition90 .pq9-hero button')?.click();};diagnostics.append(sandbox);
+  actions.remove();
+  cloud.append(...groups);
+  const buttons=[];
+  function select(i){settings.dataset.pq92SettingsView=String(i);groups.forEach((n,j)=>n.hidden=i!==j);migration.hidden=i!==1;buttons.forEach((b,j)=>b.setAttribute('aria-pressed',String(i===j)));}
+  views.forEach((v,i)=>{const b=el('button',v);b.type='button';b.dataset.pq92SettingsChoice=String(i);b.onclick=()=>select(i);buttons.push(b);nav.append(b);});
+  settings.prepend(nav);settings.dataset.ui92Settings='1';select(0);
+  // Keep the original cloud status visible on every settings subview.
+  const heading=cloud.querySelector('h2');if(heading)heading.textContent='☁️ セーブ管理';
+  const warning=children.find(n=>n.tagName==='P'&&n.textContent.startsWith('初回は自動上書きしません'));
+  if(warning){const details=el('details','','pq92-guide');details.append(el('summary','同期時の注意事項'),warning);sync.append(details);}
+ }
+ function polishCopy(main){
+  // Only static headings are relabelled. Dynamic status and safety text stay intact.
+  for(const heading of main.querySelectorAll('.panel h2:not([id]),.panel h3:not([id])')){
+   for(const node of heading.childNodes)if(node.nodeType===3)node.textContent=node.textContent.replace(/\s*[—·]\s*Ver\.\d+(?:\.\d+)*/gi,'').replace(/\s*（Ver\.\d+(?:\.\d+)*）/gi,'');
+  }
+  for(const badge of main.querySelectorAll('.panel .new-badge'))if(badge.textContent.trim()==='NEW')badge.hidden=true;
+  const guides=[
+   ['outdoor60','抽選設定の説明', '#outdoor60 section:nth-of-type(3) > p.small:first-of-type'],
+   ['event32','探索の進め方','#event32 .ev32-layout > div:first-child > section > p.small'],
+   ['quests','達成報告のルール','#quests > section:first-of-type > p.small:not([id])']
+  ];
+  for(const [id,label,selector] of guides){
+   const node=main.querySelector(selector);if(!node||node.closest('details'))continue;
+   const details=document.createElement('details');details.className='pq92-guide';const summary=document.createElement('summary');summary.textContent=label;node.before(details);details.append(summary,node);
+  }
+ }
  function organizeHome(openTab){
   const home=document.getElementById('home');
   if(!home||home.dataset.ui92Home)return;
@@ -140,6 +194,8 @@
    for(const b of originals){if(b.dataset.tab===current)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
   }
   organizeScreens();
+  organizeSettings(settings,id=>byId.get(id)?.click());
+  polishCopy(main);
   const selectHome=organizeHome(id=>byId.get(id)?.click());
   const originalTab=tab;
   tab=function(id){const result=originalTab.apply(this,arguments);current=id;group=groupFor(id);last.set(group,id);expanded=false;if(id==='home')selectHome?.('today');sync();return result;};
@@ -189,6 +245,18 @@
    '.pq92-shortcut{min-width:0;display:flex;align-items:center;gap:9px;padding:13px 10px;margin:0;text-align:left;background:#273957;border:1px solid #55698e;border-radius:13px;color:#fff}'+
    '.pq92-shortcut-icon{font-size:22px;flex:none}.pq92-shortcut-copy{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}.pq92-shortcut-copy strong{font-size:14px}.pq92-shortcut-copy small{font-size:11px;color:#c6d5ef;font-weight:400}'+
    '@media(max-width:420px){.pq92-shortcut{gap:6px;padding:10px 7px}.pq92-shortcut-icon{font-size:18px}.pq92-shortcut-copy strong{font-size:12px}}'+
+   '#settings92 [hidden],.panel .new-badge[hidden]{display:none!important}'+
+   '.pq92-settings-page{min-width:0}.pq92-settings-page>h3{margin:16px 0 10px;color:#e4dcfa}.pq92-settings-page>section{margin-top:16px}'+
+   '.pq92-guide{margin:10px 0;padding:10px 12px;border:1px solid #455779;border-radius:10px;background:#14233b;color:#d8e5ff}.pq92-guide summary{cursor:pointer;font-size:13px;font-weight:700}.pq92-guide p{margin:8px 0 0;line-height:1.6}'+
+   'main>.panel{--pq92-ink:#e9edf9;--pq92-muted:#bdcce4;--pq92-line:#465c7e;color:var(--pq92-ink);line-height:1.55}'+
+   'main>.panel section{border-radius:15px;border-color:var(--pq92-line);min-width:0}'+
+   'main>.panel h2{font-size:clamp(18px,2vw,23px);line-height:1.35;overflow-wrap:anywhere;margin-bottom:12px}main>.panel h3{font-size:16px;line-height:1.4;overflow-wrap:anywhere}'+
+   'main>.panel :is(.small,.pq9-note){color:var(--pq92-muted);line-height:1.6}'+
+   'main>.panel button:not([class*="node"]):not([class*="cell"]){border-radius:10px;min-height:42px;line-height:1.35;overflow-wrap:anywhere}'+
+   'main>.panel button.alt{background:#324661;border:1px solid #597090}main>.panel button.good{background:#18734f;border:1px solid #3ca479}'+
+   'main>.panel button:disabled{opacity:.48;cursor:not-allowed}main>.panel :is(button,input,select,summary):focus-visible{outline:2px solid #e8cc87;outline-offset:2px}'+
+   'main>.panel :is(input:not([type="checkbox"]):not([type="radio"]),select){max-width:100%;min-width:0;border-radius:9px}'+
+   '@media(prefers-reduced-motion:reduce){main>.panel button,main>nav.tabs button{transition:none!important;animation:none!important;transform:none!important}}'+
    '#settings92 #cloud-panel,#settings92 #web-migration{width:100%;min-width:0}'+
    '@media(max-width:749px){main>nav.tabs[data-ui92]{display:flex;flex-direction:column-reverse;gap:4px;overflow:visible;padding:6px 6px max(6px,env(safe-area-inset-bottom));}'+
    'main>nav.tabs[data-ui92]::before{display:none}.pq92-categories{grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;width:100%}'+
