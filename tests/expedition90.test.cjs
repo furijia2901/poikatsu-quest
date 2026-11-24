@@ -1,0 +1,20 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {period,derive}=require('../expedition90.js');
+const now=Date.parse('2026-11-24T03:00:00Z');
+const date=d=>d+'T03:00:00Z';
+const session=(id,d,cat='walk')=>({id,completedAt:date(d),mission:{cat}});
+let n=0;function check(name,f){f();n++;console.log('PASS',name);}
+check('JST weekly boundary',()=>{assert.equal(period(Date.parse('2026-11-22T14:59:59Z')).start,'2026-11-16');assert.equal(period(Date.parse('2026-11-22T15:00:00Z')).start,'2026-11-23');});
+check('empty state',()=>{const x=derive({},now);assert.equal(x.cleared,0);assert.equal(x.total,9);assert.equal(x.rank,'遠征見習い');});
+check('week dates',()=>{assert.deepEqual(period(now),{start:'2026-11-23',end:'2026-11-29',next:'2026-11-30',today:'2026-11-24'});});
+const state={dailyQuestStats:{'2026-11-22':{count:99},'2026-11-23':{count:4},'2026-11-24':{count:6},'2026-11-25':{count:100}},questHistory:[{day:'2026-11-23',category:'ゲーム'},{day:'2026-11-24',category:'レシート'}],outdoorQuest:{completedSessions:[session('a','2026-11-23'),session('a','2026-11-23'),session('b','2026-11-24','go'),session('c','2026-11-22'),session('d','2026-11-25')]}};
+check('quest date filter',()=>assert.equal(derive(state,now).metrics.quests,10));
+check('duplicate and out-of-period outdoor filter',()=>assert.equal(derive(state,now).metrics.outdoor,2));
+check('distinct categories',()=>{const x=derive(state,now);assert.equal(x.metrics.categories,2);assert.equal(x.metrics.outdoorTypes,2);});
+check('cross-mode dates',()=>assert.equal(derive(state,now).metrics.combinedDays,2));
+check('route unlock',()=>{const x=derive(state,now);assert.equal(x.routes[0].cleared,3);assert.equal(x.routes[2].steps[2].unlocked,false);});
+check('read only',()=>{const before=JSON.stringify(state);derive(state,now);assert.equal(JSON.stringify(state),before);});
+check('invalid rows',()=>{const x=derive({dailyQuestStats:{'2026-11-24':{count:-3}},questHistory:[null],outdoorQuest:{completedSessions:[null,{id:'x',completedAt:'bad'}]}},now);assert.equal(x.cleared,0);});
+check('all routes cleared',()=>{const x=structuredClone(state);x.dailyQuestStats['2026-11-25']={count:1};x.outdoorQuest.completedSessions.push(session('e','2026-11-25'),session('f','2026-11-25'),session('g','2026-11-25'));const d=derive(x,Date.parse('2026-11-25T12:00:00Z'));assert.equal(d.cleared,9);assert.equal(d.rank,'星巡りの英雄');});
+console.log(n+' checks passed');
