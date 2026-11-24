@@ -1,0 +1,139 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {explorerProgress,beginExplorerBattle,beginBattle,battleStep,createSandbox,weeklyMap,receiptId,emptyLedger,EXPLORER_XP,MAX_EXPLORER_LEVEL,wallet,mergeLedgers,canAct,EXPLORER_GEAR,activeGear,incomingDamage,actionsFor,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,sandboxClaim,sandboxWallet}=require('../expedition90.js');
+const t=createSandbox(Date.parse('2026-11-24T03:00:00Z')),week=t.d.period.start;
+const id=(route,kind)=>receiptId(week,route,kind);
+const all=['market','trail','citadel'].flatMap(r=>Object.keys(EXPLORER_XP).filter(k=>k!=='weekly').map(k=>id(r,k))).concat(id('all','weekly'));
+const ledger=claims=>({version:1,claims});
+let n=0;const check=(name,f)=>{f();console.log('PASS',name);n++;};
+check('new explorer begins at original stats',()=>assert.deepEqual(explorerProgress(emptyLedger()),{xp:0,level:1,maxed:false,progress:0,next:100,hp:120,attack:21,skill:36,rank:'遠征見習い'}));
+check('existing receipts contribute exactly once',()=>{const p=explorerProgress(ledger(all));assert.equal(p.xp,655);assert.equal(p.level,5);assert.equal(p.progress,135);assert.equal(p.next,180);});
+check('exact level threshold',()=>{const p=explorerProgress(ledger([id('all','weekly')]));assert.equal(p.level,2);assert.equal(p.progress,0);assert.equal(p.next,120);});
+check('duplicate and invalid receipt fail closed',()=>{assert.throws(()=>explorerProgress(ledger([all[0],all[0]])));assert.throws(()=>explorerProgress(ledger(['invalid'])));});
+check('merge does not double award XP',()=>assert.deepEqual(explorerProgress(mergeLedgers(ledger(all),ledger(all))),explorerProgress(ledger(all))));
+check('currency spending cannot affect growth',()=>{const l=ledger(all),before=explorerProgress(l);assert.equal(wallet(l,['sword']).spent,60);assert.deepEqual(explorerProgress(l),before);});
+check('receipt order does not affect growth',()=>assert.deepEqual(explorerProgress(ledger(all)),explorerProgress(ledger([...all].reverse()))));
+check('max level capped and no next threshold',()=>{const claims=[];for(let i=0;i<1000;i++){const day=new Date(Date.parse(week+'T00:00:00Z')-i*7*86400000).toISOString().slice(0,10);claims.push(receiptId(day,'all','weekly'));}const p=explorerProgress(ledger(claims));assert.equal(p.level,MAX_EXPLORER_LEVEL);assert.equal(p.maxed,true);assert.equal(p.next,0);assert.equal(p.hp,178);});
+check('growth snapshots battle stats without mutating inputs',()=>{const m=weeklyMap(t.d,{},'easy'),l=ledger(all),before=JSON.stringify([t.d,m,l]);const a=beginExplorerBattle(t.d,m,'market','boss','water',l),p=explorerProgress(l);assert.equal(a.player.hp,p.hp);assert.equal(a.growth.attack,p.attack);const b=battleStep(a,'attack');assert.equal(a.enemy.hp-b.enemy.hp,Math.round(p.attack*1.3));assert.equal(JSON.stringify([t.d,m,l]),before);});
+check('level one battle compatible with old system',()=>{const m=weeklyMap(t.d,{},'hard'),a=beginBattle(t.d,m,'market','boss','water'),b=beginExplorerBattle(t.d,m,'market','boss','water',emptyLedger());assert.deepEqual(b.player,a.player);assert.deepEqual(battleStep(b,'skill').enemy,battleStep(a,'skill').enemy);});
+
+const fight=(gear=null,route='market',owned=gear?[gear]:[])=>beginExplorerBattle(t.d,weeklyMap(t.d,{},'hard'),route,'boss','water',emptyLedger(),owned,gear);
+check('all shop items have distinct battle effects',()=>{assert.equal(Object.keys(EXPLORER_GEAR).length,8);assert.equal(activeGear([], 'sword'),null);assert.equal(activeGear(['sword'],'sword'),'sword');assert.equal(fight('sword','market',[]).combat.gear,null);});
+check('sword increases normal attack only',()=>{const a=fight(),b=fight('sword');assert.ok(battleStep(b,'attack').enemy.hp<battleStep(a,'attack').enemy.hp);assert.equal(battleStep(b,'skill').enemy.hp,battleStep(a,'skill').enemy.hp);});
+check('shield reduces predicted and actual incoming damage',()=>{const a=fight(),b=fight('shield');assert.ok(incomingDamage(b)<incomingDamage(a));assert.equal(b.player.hp-battleStep(b,'attack').player.hp,incomingDamage(b));});
+check('crown raises initial and maximum MP',()=>{const b=fight('crown');assert.equal(b.player.mp,3);assert.equal(b.player.maxMp,5);});
+check('compass improves skill; lantern improves recovery',()=>{const a=fight(),b=fight('compass');assert.ok(battleStep(b,'skill').enemy.hp<battleStep(a,'skill').enemy.hp);const x=fight('lantern');x.player.hp=50;assert.equal(battleStep(x,'heal').player.hp,50+48-incomingDamage(x));});
+check('title improves guard; relic improves burst',()=>{const a=fight(),b=fight('title');assert.ok(battleStep(b,'guard').player.hp>battleStep(a,'guard').player.hp);const x=fight('relic');x.player.mp=4;a.player.mp=4;assert.ok(battleStep(x,'burst').enemy.hp<battleStep(a,'burst').enemy.hp);});
+check('burst requires four MP and consumes four',()=>{const a=fight();assert.equal(canAct(a,'burst'),false);assert.equal(battleStep(a,'burst'),a);a.player.mp=4;const b=battleStep(a,'burst');assert.equal(b.player.mp,0);assert.ok(a.enemy.hp-b.enemy.hp>36);});
+check('special attack inflicts each elemental status',()=>{for(const [route,id] of [['market','burn'],['trail','exposed'],['citadel','frost']]){const a=fight(null,route);a.turn=3;const b=battleStep(a,'attack');assert.deepEqual(b.combat.status,{id,turns:2});assert.equal(a.combat.status,null);}});
+check('guard and cloak prevent new status',()=>{const a=fight();a.turn=3;assert.equal(battleStep(a,'guard').combat.status,null);const b=fight('cloak');b.turn=3;assert.equal(battleStep(b,'attack').combat.status,null);});
+check('burn ticks twice, then clears',()=>{const a=fight();a.combat.status={id:'burn',turns:2};const b=battleStep(a,'guard');assert.equal(a.player.hp-b.player.hp,incomingDamage(a,true)+5);assert.equal(b.combat.status.turns,1);const c=battleStep(b,'guard');assert.equal(c.combat.status,null);});
+check('frost and exposed change attack and incoming damage',()=>{const a=fight(),b=structuredClone(a);b.combat.status={id:'frost',turns:2};assert.ok(battleStep(b,'attack').enemy.hp>battleStep(a,'attack').enemy.hp);b.combat.status={id:'exposed',turns:2};assert.ok(incomingDamage(b)>incomingDamage(a));});
+check('cleanse consumes MP and removes status before enemy attack',()=>{const a=fight();assert.equal(canAct(a,'cleanse'),false);a.combat.status={id:'burn',turns:2};const b=battleStep(a,'cleanse');assert.equal(b.combat.status,null);assert.equal(b.player.mp,a.player.mp-1);assert.equal(a.player.hp-b.player.hp,incomingDamage(a,false,null));});
+check('legacy battle actions unchanged',()=>{const b=beginBattle(t.d,weeklyMap(t.d),'market','boss','water');assert.equal(Object.keys(actionsFor(b)).length,4);assert.equal(canAct(b,'burst'),false);});
+
+
+check('chest probabilities exactly cover 10000 outcomes',()=>{const counts={};for(let i=0;i<10000;i++){const r=chestRarity(i);counts[r.id]=(counts[r.id]||0)+1;}assert.deepEqual(counts,{N:5000,R:3000,SR:1500,SSR:400,UR:100});assert.throws(()=>chestRarity(-1));assert.throws(()=>chestRarity(10000));});
+check('chest catalog contains fifteen unique items',()=>{assert.equal(new Set(Object.values(CHEST_ITEMS).flat().map(x=>x[0])).size,15);assert.equal(CHEST_RARITIES.reduce((n,r)=>n+r.weight,0),10000);});
+check('drop fixed by canonical receipt, no invalid or non-chest drop',()=>{const x=id('market','chest');assert.deepEqual(chestDrop(x),chestDrop(x));assert.equal(chestDrop(id('market','boss')),null);assert.equal(chestDrop('invalid'),null);assert.equal(chestDrop(x).route,'market');assert.ok(CHEST_ITEMS.market.some(i=>i[0]===chestDrop(x).itemId));assert.ok(chestRoll(x)>=0&&chestRoll(x)<10000);});
+check('all regional rarities accessible over historical weeks',()=>{const unique=new Set();for(let i=0;i<1500;i++){const day=new Date(Date.parse(week+'T00:00:00Z')-i*7*86400000).toISOString().slice(0,10);for(const route of ['market','trail','citadel'])unique.add(chestDrop(receiptId(day,route,'chest')).itemId);}assert.equal(unique.size,15);});
+check('collection reconstructed from old receipts and merge without duplication',()=>{const a=ledger(all),b=chestCollection(a);assert.equal(b.total,3);assert.equal(b.unique,3);assert.deepEqual(chestCollection(mergeLedgers(a,a)),b);assert.equal(chestCollection(emptyLedger()).total,0);assert.throws(()=>chestCollection(ledger([all[0],all[0]])));});
+check('sandbox chest gives collectible and unchanged currency; duplicate cannot reroll',()=>{const x=id('market','chest'),a=sandboxClaim(t,x),b=sandboxClaim(a,x);assert.equal(a.lastClaim,15);assert.equal(sandboxWallet(a).balance,1015);assert.deepEqual(a.lastDrop,chestDrop(x));assert.equal(b.lastClaim,0);assert.equal(b.lastDrop,null);assert.deepEqual(chestCollection(a.ledger),chestCollection(b.ledger));assert.equal(t.ledger.claims.length,0);});
+
+
+const {GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest}=require('../expedition90.js');
+const request=i=>'00000000-0000-0000-0000-'+String(i).padStart(12,'0');
+check('summon catalog and probability boundaries',()=>{assert.equal(Object.keys(GACHA_ITEMS).length,10);const count={};for(let i=0;i<10000;i++){const item=drawItem(0,i,1),r=GACHA_ITEMS[item][0];count[r]=(count[r]||0)+1;}assert.deepEqual(count,{UR:300,SSR:700,SR:2000,R:3000,N:4000});});
+check('20th pull guarantees UR and resets pity',()=>{let rows=[];for(let i=1;i<=20;i++){const a=drawPlan(emptyLedger(),[],rows,request(i),9999,1,1000);assert.equal(a.status,'drawn');rows=a.rows;}assert.equal(rows[19].item_id,'ur1');const s=gachaSummary(rows);assert.equal(s.pity,0);assert.equal(s.remaining,20);assert.equal(s.spent,400);assert.equal(s.fragments,18);});
+check('summon request retry does not consume or reroll',()=>{const a=drawPlan(emptyLedger(),[],[],request(1),9999,1,20),b=drawPlan(emptyLedger(),[],a.rows,request(1),0,2,20);assert.equal(b.status,'duplicate');assert.deepEqual(a.rows,b.rows);assert.equal(drawPlan(emptyLedger(),[],a.rows,request(2),0,2,20).status,'insufficient');});
+check('summon and shop share wallet',()=>{const l=ledger([id('market','boss'),id('trail','boss')]);const a=drawPlan(l,[],[],request(1),9000,1);assert.equal(wallet(l,[],a.rows).balance,40);assert.equal(require('../expedition90.js').purchasePlan(l,[],'sword',a.rows).status,'insufficient');assert.equal(drawPlan(l,['sword'],[],request(2),0,1).status,'insufficient');});
+check('draw history rejects holes, duplicates and invalid pity',()=>{assert.throws(()=>validateDraws([{draw_no:2,request_id:request(1),item_id:'n1'}]));assert.throws(()=>validateDraws(Array.from({length:20},(_,i)=>({draw_no:i+1,request_id:request(i+1),item_id:'n1'}))));assert.throws(()=>validateDraws([{draw_no:1,request_id:request(1),item_id:'fake'}]));});
+check('cached draw history is scope separated and never truncated',()=>{const m=new Map(),store={getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)};const a=drawPlan(emptyLedger(),[],[],request(1),9000,1,20);saveDraws(store,'guest',a.rows);assert.deepEqual(readDraws(store,'guest'),a.rows);assert.deepEqual(readDraws(store,'account:a'),[]);assert.throws(()=>saveDraws(store,'guest',[]));});
+
+
+const {expeditionCodex,filterCodex,CODEX_GROUPS}=require('../expedition90.js');
+check('codex contains 40 distinct entries across four groups',()=>{
+ const x=expeditionCodex(emptyLedger(),[],[]);
+ assert.equal(x.total,40);assert.equal(x.found,0);assert.equal(new Set(x.entries.map(e=>e.id)).size,40);
+ assert.deepEqual(x.groups,{gear:{found:0,total:8},chest:{found:0,total:15},gacha:{found:0,total:10},enemy:{found:0,total:7}});
+});
+check('codex reconstructs owned items, chest loot, summons and claimed wins without mutation',()=>{
+ const l=ledger(all),owned=['sword','shield'],draws=drawPlan(l,owned,[],request(1),0,1).rows;
+ const before=JSON.stringify([l,owned,draws]),x=expeditionCodex(l,owned,draws);
+ assert.equal(x.found,12);assert.equal(x.groups.gear.found,2);assert.equal(x.groups.chest.found,3);assert.equal(x.groups.gacha.found,1);assert.equal(x.groups.enemy.found,6);
+ assert.equal(JSON.stringify([l,owned,draws]),before);
+ assert.equal(x.entries.find(e=>e.id==='gear:sword').count,1);
+ assert.equal(x.entries.find(e=>e.id==='gacha:ur1').count,1);
+ assert.equal(x.entries.find(e=>e.id==='enemy:market:boss').count,1);
+});
+check('codex counts duplicate summons but does not inflate completion',()=>{
+ const l=ledger(all),a=drawPlan(l,[],[],request(1),9999,1),b=drawPlan(l,[],a.rows,request(2),9999,1);
+ const x=expeditionCodex(l,[],b.rows);
+ assert.equal(x.entries.find(e=>e.id==='gacha:n1').count,2);assert.equal(x.groups.gacha.found,1);assert.equal(x.fragments,1);
+});
+check('codex filters compose and include unowned rarities',()=>{
+ const x=expeditionCodex(emptyLedger(),[],[]);
+ assert.equal(filterCodex(x,'chest','missing','UR').length,3);assert.equal(filterCodex(x,'gacha','missing','UR').length,2);assert.equal(filterCodex(x,'all','found','all').length,0);
+ assert.equal(filterCodex(x,'enemy','all','UR').length,0);assert.equal(filterCodex(x,'gear','missing','all').length,8);
+});
+check('codex rejects corrupt source data instead of resetting collection',()=>{assert.throws(()=>expeditionCodex(ledger(['invalid']),[],[]));assert.throws(()=>expeditionCodex(emptyLedger(),['fake'],[]));assert.throws(()=>expeditionCodex(emptyLedger(),[],[{draw_no:2,request_id:request(1),item_id:'n1'}]));});
+
+
+const {HIDDEN_BOSS,hiddenRequirements,beginHiddenBattle,hiddenPhase,enemyIntent,rewardOptions,claimReward,receiptValue}=require('../expedition90.js');
+check('hidden gate requires all nine checkpoints, three current boss receipts, level and chest collection',()=>{
+ const l=ledger(all);assert.equal(hiddenRequirements(t.d,l).unlocked,true);
+ assert.equal(hiddenRequirements(t.d,emptyLedger()).unlocked,false);
+ assert.equal(hiddenRequirements(t.d,ledger(all.filter(x=>x!==id('trail','boss')))).unlocked,false);
+ assert.equal(hiddenRequirements({...t.d,cleared:8},l).unlocked,false);
+ assert.equal(hiddenRequirements(t.d,ledger(all.filter(x=>!x.endsWith(':chest')))).unlocked,false);
+ assert.equal(beginHiddenBattle(t.d,'fire',emptyLedger()),null);
+});
+check('hidden battle has two distinct predictable phases and is beatable at unlock level',()=>{
+ const l=ledger(all),m=weeklyMap(t.d),initial=beginHiddenBattle(t.d,'fire',l,['sword'],'sword');
+ assert.equal(initial.enemy.hp,250);assert.equal(initial.growth.level,5);
+ let b=initial;
+ for(const a of ['skill','guard','guard','burst'])b=battleStep(b,a);
+ assert.equal(hiddenPhase(b),2);assert.match(b.log.join(' '),/虚空覚醒/);
+ assert.equal(enemyIntent(b).special,false);
+ for(const a of ['guard','guard','burst','guard','skill'])b=battleStep(b,a);
+ assert.equal(b.status,'won');assert.equal(b.enemy.hp,0);assert.ok(b.player.hp>0);assert.equal(initial.enemy.hp,250);
+ const receipt=receiptId(week,'all','hidden');assert.equal(receipt,'v2:'+week+':all:hidden');assert.equal(receiptValue(receipt),40);
+ assert.equal(receiptValue('v1:'+week+':all:hidden'),null);
+ assert.equal(claimReward(l,t.d,m,initial,receipt).status,'locked');
+ assert.equal(claimReward(emptyLedger(),t.d,m,b,receipt).status,'locked');
+ const result=claimReward(l,t.d,m,b,receipt);assert.equal(result.credited,40);assert.equal(explorerProgress(result.ledger).xp,explorerProgress(l).xp+120);
+ assert.equal(claimReward(result.ledger,t.d,m,b,receipt).status,'duplicate');
+ assert.equal(expeditionCodex(result.ledger,[],[]).entries.find(x=>x.id==='enemy:all:hidden').count,1);
+ assert.equal(rewardOptions(t.d,m,b,l).length,20);
+});
+
+
+const {battleFeedback,REGION_ART}=require('../expedition90.js');
+check('battle feedback reports exact HP delta without modifying state',()=>{
+ const b=fight('sword'),after=battleStep(b,'attack'),before=JSON.stringify([b,after]);
+ const f=battleFeedback(b,after,'attack');
+ assert.equal(f.enemyDamage,b.enemy.hp-after.enemy.hp);assert.equal(f.playerLoss,b.player.hp-after.player.hp);assert.equal(f.awakened,false);
+ assert.equal(battleFeedback(b,b,'cleanse'),null);assert.equal(JSON.stringify([b,after]),before);
+});
+check('awakening feedback only occurs on threshold transition',()=>{
+ let b=beginHiddenBattle(t.d,'fire',ledger(all),['sword'],'sword');
+ for(const action of ['skill','guard','guard'])b=battleStep(b,action);
+ const next=battleStep(b,'burst');assert.equal(battleFeedback(b,next,'burst').awakened,true);
+ assert.equal(battleFeedback(next,battleStep(next,'guard'),'guard').awakened,false);
+ assert.deepEqual(Object.keys(REGION_ART),['market','trail','citadel','all']);
+});
+
+
+const {sandboxScenario}=require('../expedition90.js');
+check('sandbox fixtures are isolated and cover locked, growth, insufficient and guaranteed summon',()=>{
+ const time=Date.parse('2026-11-24T03:00:00Z'),basic=sandboxScenario('basic',time),locked=sandboxScenario('locked',time),growth=sandboxScenario('growth',time),pity=sandboxScenario('pity',time),poor=sandboxScenario('poor',time);
+ assert.equal(basic.d.cleared,9);assert.equal(locked.d.cleared,0);assert.equal(beginExplorerBattle(locked.d,weeklyMap(locked.d),'market','normal','fire',locked.ledger),null);
+ assert.equal(explorerProgress(growth.ledger).level,5);assert.equal(hiddenRequirements(growth.d,growth.ledger).unlocked,true);
+ assert.equal(gachaSummary(pity.draws).remaining,1);
+ const pull=drawPlan(pity.ledger,pity.owned,pity.draws,request(1000),9999,1,pity.credit);assert.equal(pull.row.item_id,'ur1');
+ assert.equal(sandboxWallet(poor).balance,0);
+ assert.equal(drawPlan(poor.ledger,poor.owned,poor.draws,request(1001),0,1,poor.credit).status,'insufficient');
+ assert.equal(basic.draws.length,0);assert.equal(basic.ledger.claims.length,0);assert.throws(()=>sandboxScenario('unknown',time));
+});
+
+console.log(n+' explorer checks passed');

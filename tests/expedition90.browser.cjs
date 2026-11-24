@@ -136,12 +136,33 @@ const server=http.createServer((req,res)=>{
    const panel=page.locator('#expedition90');
    assert.equal(await panel.isVisible(),true);
    assert.equal(await panel.locator('#pq9-shop').isVisible(),false);
+   const overview=panel.locator('#pq10-map-overview');
+   assert.equal(await overview.locator('.pq10-map-tile').count(),4);
+   assert.equal(await overview.locator('.pq10-map-node').count(),9);
+   assert.equal(await overview.locator('.pq10-map-node[data-state="cleared"]').count(),3);
+   await overview.getByRole('button',{name:'🏜️ 黄金街道',exact:true}).click();
+   assert.equal(await page.evaluate(()=>document.activeElement?.dataset.pq10Route),'market');
+
+   await panel.locator('[data-pq9-view="growth"]').click();
+   assert.match(await panel.locator('#pq10-growth').innerText(),/Lv\.1/);
+   assert.match(await panel.locator('#pq10-growth').innerText(),/累計EXP 0/);
+
    await panel.locator('[data-pq9-view="rewards"]').click();
    const reward=panel.getByRole('button',{name:/受取可能な報酬を一括受取/});
    await reward.click();
    await page.locator('#pq9-reveal').waitFor({state:'visible'});
+   assert.match(await page.locator('#pq9-reveal').getAttribute('data-rarity'),/^(N|R|SR|SSR|UR)$/);
    await page.locator('#pq9-reveal').getByRole('button',{name:'閉じる',exact:true}).click();
    assert.equal(await reward.isDisabled(),true);
+   const chestText=await panel.locator('#pq10-chests').innerText();
+   assert.match(chestText,/開封 1 回 ／ 発見 1 \/ 15 種/);
+   assert.match(chestText,/(N|R|SR|SSR|UR) (黄金の古銭|交易商の印章|琥珀の星砂|黄金王の羅針盤|太陽王の聖杯)/);
+
+   await panel.locator('[data-pq9-view="growth"]').click();
+   const growthText=await panel.locator('#pq10-growth').innerText();
+   assert.match(growthText,/累計EXP [1-9]\d*/);
+   await panel.locator('[data-pq9-view="shop"]').click();
+
    await panel.locator('[data-pq9-view="shop"]').click();
    const lantern=panel.locator('#pq9-shop .pq9-grid > div').filter({hasText:'星灯のランタン'});
    await lantern.getByRole('button',{name:'交換する',exact:true}).click();
@@ -150,16 +171,42 @@ const server=http.createServer((req,res)=>{
    assert.equal(await lantern.getByRole('button',{name:'獲得済み',exact:true}).isDisabled(),true);
    await lantern.getByRole('button',{name:'遠征に展示',exact:true}).click();
    assert.match(await panel.locator('.pq9-hero').innerText(),/星灯のランタン/);
+   await panel.locator('[data-pq9-view="growth"]').click();
+   assert.equal(await panel.locator('#pq10-growth').innerText(),growthText,'spending cannot reduce EXP');
+   console.log('PASS explorer growth and spending isolation '+viewport.width+'px');
+   const codexBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await panel.locator('[data-pq9-view="codex"]').click();
+   const codex=panel.locator('#pq10-codex');
+   assert.match(await codex.innerText(),/図鑑達成 2 \/ 40 種/);
+   assert.equal(await codex.locator('[data-codex-id]').count(),40);
+   await codex.getByLabel('図鑑 分類',{exact:true}).selectOption('gear');
+   assert.equal(await codex.locator('[data-codex-id]').count(),8);
+   await codex.getByLabel('図鑑 収集状況',{exact:true}).selectOption('found');
+   assert.equal(await codex.locator('[data-codex-id]').count(),1);
+   assert.match(await codex.innerText(),/星灯のランタン/);
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),codexBefore,'codex must be read-only');
+   console.log('PASS 40-entry codex and filtering '+viewport.width+'px');
+
+
    assert.equal(await page.evaluate(()=>localStorage.getItem('poikatsu-quest-v01')),base,'ordinary save unchanged by expedition');
    await panel.locator('[data-pq9-view="map"]').click();
    await panel.getByRole('button',{name:/黄金の番兵/}).click();
    assert.equal(await panel.locator('#pq9-battle').isVisible(),true);
    await panel.getByRole('button',{name:/通常攻撃（MP/}).click();
    assert.match(await panel.locator('#pq9-battle').innerText(),/TURN 2/);
+   assert.match(await panel.locator('.pq10-impact').innerText(),/敵 −\d+ HP/);
+   assert.equal(await panel.locator('.pq10-impact .pq10-hit').evaluate(e=>getComputedStyle(e).animationName),'none');
+   assert.equal(await panel.locator('.pq9-arena').getAttribute('data-region'),'market');
+   console.log('PASS regional map, rarity reveal, actual hit feedback and reduced-motion support '+viewport.width+'px');
+
    await panel.getByRole('button',{name:'戦闘を中断',exact:true}).click();
    assert.equal(await panel.locator('#pq9-battle').isVisible(),false);
    await page.reload();await page.locator('nav[data-ui92="1"]').waitFor();await seed();
    await gotoTab('expedition90');
+   await panel.locator('[data-pq9-view="rewards"]').click();
+   assert.equal(await panel.locator('#pq10-chests').innerText(),chestText,'fixed chest collection survives reload');
+   console.log('PASS chest reveal and persistent receipt-derived collection '+viewport.width+'px');
+
    await panel.locator('[data-pq9-view="shop"]').click();
    assert.equal(await lantern.getByRole('button',{name:'獲得済み',exact:true}).isDisabled(),true);
    assert.match(await panel.locator('.pq9-hero').innerText(),/星灯のランタン/);
@@ -174,6 +221,9 @@ const server=http.createServer((req,res)=>{
    const row=sandbox.locator('span').filter({hasText:'黄金街道：宝箱'}).locator('..');
    await row.getByRole('button',{name:'受け取る',exact:true}).click();
    assert.match(await sandbox.innerText(),/1015 個/);
+   assert.match(await sandbox.innerText(),/試験宝箱コレクション 1\/15/);
+   assert.match(await sandbox.innerText(),/(N|R|SR|SSR|UR) (黄金の古銭|交易商の印章|琥珀の星砂|黄金王の羅針盤|太陽王の聖杯)/);
+
    assert.equal(await row.getByRole('button',{name:'受取済み',exact:true}).isDisabled(),true);
    await sandbox.getByRole('button',{name:'ショップ',exact:true}).click();
    const sword=sandbox.getByRole('heading',{name:/星断の剣/}).locator('..');
@@ -185,8 +235,83 @@ const server=http.createServer((req,res)=>{
    await sandbox.getByRole('button',{name:'金煌の機竜',exact:true}).click();
    await sandbox.getByRole('button',{name:'通常攻撃',exact:true}).click();
    assert.match(await sandbox.innerText(),/TURN 2/);
+   assert.match(await sandbox.innerText(),/星断の剣.*通常攻撃 \+4/);
+   assert.equal(await sandbox.getByRole('button',{name:'浄化',exact:true}).isDisabled(),true);
+   await sandbox.getByRole('button',{name:'通常攻撃',exact:true}).click();
+   await sandbox.getByRole('button',{name:'通常攻撃',exact:true}).click();
+   assert.match(await sandbox.innerText(),/火傷 残り2行動/);
+   assert.equal(await sandbox.getByRole('button',{name:'浄化',exact:true}).isEnabled(),true);
+   await sandbox.getByRole('button',{name:'浄化',exact:true}).click();
+   assert.match(await sandbox.innerText(),/状態異常：なし/);
+   await sandbox.getByRole('button',{name:'防御',exact:true}).click();
+   assert.equal(await sandbox.getByRole('button',{name:'星界奥義',exact:true}).isEnabled(),true);
+   await sandbox.getByRole('button',{name:'星界奥義',exact:true}).click();
+   assert.match(await sandbox.innerText(),/勝利！/);
+   await sandbox.getByRole('button',{name:'ガチャ',exact:true}).click();
+   assert.match(await sandbox.innerText(),/URまであと最大 20 回/);
+   await sandbox.getByRole('button',{name:'試験召喚（20星晶石）',exact:true}).click();
+   assert.match(await sandbox.innerText(),/935 個/);
+   assert.match(await sandbox.innerText(),/召喚成功：/);
+   assert.match(await sandbox.innerText(),/1：(?:N|R|SR|SSR|UR) /);
+   console.log('PASS isolated summon, shared wallet and result '+viewport.width+'px');
+   await sandbox.getByRole('button',{name:'図鑑',exact:true}).click();
+   assert.match(await sandbox.innerText(),/図鑑達成 3 \/ 40 種/);
+   await sandbox.getByLabel('図鑑 分類',{exact:true}).selectOption('gacha');
+   await sandbox.getByLabel('図鑑 収集状況',{exact:true}).selectOption('found');
+   assert.equal(await sandbox.locator('[data-codex-id]').count(),1);
+   assert.equal(await sandbox.locator('[data-found="true"]').count(),1);
+   await sandbox.getByLabel('図鑑 収集状況',{exact:true}).selectOption('missing');
+   assert.equal(await sandbox.locator('[data-codex-id]').count(),9);
+   console.log('PASS sandbox codex filters '+viewport.width+'px');
+   await sandbox.getByRole('button',{name:'戦闘',exact:true}).click();
+   await sandbox.getByRole('button',{name:'戦闘を終了して遠征へ',exact:true}).click();
+   assert.equal(await sandbox.getByRole('button',{name:'隠しボスに挑戦',exact:true}).isDisabled(),true);
+   await sandbox.getByRole('button',{name:'隠しボス解放条件を試す',exact:true}).click();
+   await sandbox.getByRole('button',{name:'炎',exact:true}).click();
+   await sandbox.getByRole('button',{name:'隠しボスに挑戦',exact:true}).click();
+   assert.match(await sandbox.innerText(),/虚空の星喰竜ノヴァ/);
+   for(const label of ['星脈斬','防御','防御','星界奥義'])await sandbox.getByRole('button',{name:label,exact:true}).click();
+   assert.match(await sandbox.innerText(),/形態 2 \/ 2/);
+   assert.match(await sandbox.locator('.pq10-impact').innerText(),/虚空覚醒/);
+
+   for(const label of ['防御','防御','星界奥義','防御','星脈斬'])await sandbox.getByRole('button',{name:label,exact:true}).click();
+   assert.match(await sandbox.innerText(),/勝利！/);
+   await sandbox.getByRole('button',{name:'勝利報酬を受取',exact:true}).click();
+   assert.match(await sandbox.innerText(),/星晶石 ＋40/);
+   assert.equal(await sandbox.getByRole('button',{name:'勝利報酬を受取',exact:true}).isDisabled(),true);
+   console.log('PASS hidden boss two-phase combat and single claim '+viewport.width+'px');
+
+
+
+   console.log('PASS enhanced combat, sword effect, status and cleanse '+viewport.width+'px');
+
    await sandbox.getByRole('button',{name:'試験データをリセット',exact:true}).click();
    assert.match(await sandbox.innerText(),/1000 個/);
+
+   async function scenario(label){
+    await sandbox.getByText('🧪 テスト条件を選ぶ（試験記録を入れ替え）',{exact:true}).click();
+    await sandbox.getByRole('button',{name:label,exact:true}).click();
+   }
+   await scenario('未解放状態');
+   assert.match(await sandbox.innerText(),/0\/9地点仮クリア/);
+   assert.equal(await sandbox.getByRole('button',{name:'黄金の番兵',exact:true}).isDisabled(),true);
+   await scenario('星晶石不足（0個）');
+   assert.equal(await sandbox.getByRole('button',{name:'試験召喚（20星晶石）',exact:true}).isDisabled(),true);
+   await scenario('育成・隠しボス解放済み');
+   assert.match(await sandbox.innerText(),/Lv\.5/);
+   assert.match(await sandbox.innerText(),/累計EXP 655/);
+   await scenario('UR天井直前（19連済み）');
+   assert.match(await sandbox.innerText(),/URまであと最大 1 回/);
+   await sandbox.getByRole('button',{name:'試験召喚（20星晶石）',exact:true}).click();
+   assert.equal(await sandbox.locator('.pq10-test-loot').getAttribute('data-rarity'),'UR');
+   assert.match(await sandbox.innerText(),/URまであと最大 20 回/);
+   await sandbox.getByText('レアリティ別演出を確認（消費なし）',{exact:true}).click();
+   const beforePreview=await sandbox.locator('strong').first().innerText();
+   await sandbox.getByRole('button',{name:'SSR 演出確認',exact:true}).click();
+   assert.equal(await sandbox.locator('.pq10-test-loot').getAttribute('data-rarity'),'SSR');
+   assert.match(await sandbox.locator('.pq10-test-loot').innerText(),/演出確認のみ・獲得なし/);
+   assert.equal(await sandbox.locator('strong').first().innerText(),beforePreview);
+   console.log('PASS locked, insufficient, growth, pity and free rarity preview '+viewport.width+'px');
    await sandbox.getByRole('button',{name:'テストを終了',exact:true}).click();
    await sandbox.waitFor({state:'detached'});
    assert.deepEqual(await snapshot(),original,'sandbox must not change normal state or storage');

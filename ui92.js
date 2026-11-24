@@ -106,7 +106,7 @@
   }
   backups.append(backup,preview);
   diagnostics.append(tests,recovery);
-  const sandbox=el('button','🧪 遠征テストモードへ','alt');sandbox.type='button';sandbox.onclick=()=>{openTab('expedition90');document.querySelector('#expedition90 .pq9-hero button')?.click();};diagnostics.append(sandbox);
+  const sandbox=el('button','🧪 遠征テストモードへ','alt');sandbox.type='button';sandbox.onclick=()=>{openTab('expedition90');document.querySelector('#pq10-test-open')?.click();};diagnostics.append(sandbox);
   actions.remove();
   cloud.append(...groups);
   const buttons=[];
@@ -292,7 +292,7 @@
    '.pq92-leaves{grid-template-columns:repeat(2,minmax(0,1fr))}main>nav.tabs[data-ui92] .pq92-leaves button{width:100%;min-width:0;max-width:none;white-space:normal;text-align:left;font-size:12px}'+
    'main{padding-bottom:90px!important}}';
   document.head.append(style);
-  const title=document.querySelector('main > h1');if(title){const tag=title.previousElementSibling;if(tag?.classList.contains('small'))tag.textContent='REAL-LIFE QUEST × FANTASY RPG · Ver.9.2';}
+  const title=document.querySelector('main > h1');if(title){const tag=title.previousElementSibling;if(tag?.classList.contains('small'))tag.textContent='REAL-LIFE QUEST × FANTASY RPG · Ver.10.0';}
  }
  // Expedition and backup modules mount first (script is last in index).
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
