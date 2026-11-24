@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {explorerProgress,beginExplorerBattle,beginBattle,battleStep,createSandbox,weeklyMap,receiptId,emptyLedger,EXPLORER_XP,MAX_EXPLORER_LEVEL,wallet,mergeLedgers}=require('../expedition90.js');
+const {explorerProgress,beginExplorerBattle,beginBattle,battleStep,createSandbox,weeklyMap,receiptId,emptyLedger,EXPLORER_XP,MAX_EXPLORER_LEVEL,wallet,mergeLedgers,canAct,EXPLORER_GEAR,activeGear,incomingDamage,actionsFor}=require('../expedition90.js');
 const t=createSandbox(Date.parse('2026-11-24T03:00:00Z')),week=t.d.period.start;
 const id=(route,kind)=>receiptId(week,route,kind);
 const all=['market','trail','citadel'].flatMap(r=>Object.keys(EXPLORER_XP).filter(k=>k!=='weekly').map(k=>id(r,k))).concat(id('all','weekly'));
@@ -16,4 +16,20 @@ check('receipt order does not affect growth',()=>assert.deepEqual(explorerProgre
 check('max level capped and no next threshold',()=>{const claims=[];for(let i=0;i<1000;i++){const day=new Date(Date.parse(week+'T00:00:00Z')-i*7*86400000).toISOString().slice(0,10);claims.push(receiptId(day,'all','weekly'));}const p=explorerProgress(ledger(claims));assert.equal(p.level,MAX_EXPLORER_LEVEL);assert.equal(p.maxed,true);assert.equal(p.next,0);assert.equal(p.hp,178);});
 check('growth snapshots battle stats without mutating inputs',()=>{const m=weeklyMap(t.d,{},'easy'),l=ledger(all),before=JSON.stringify([t.d,m,l]);const a=beginExplorerBattle(t.d,m,'market','boss','water',l),p=explorerProgress(l);assert.equal(a.player.hp,p.hp);assert.equal(a.growth.attack,p.attack);const b=battleStep(a,'attack');assert.equal(a.enemy.hp-b.enemy.hp,Math.round(p.attack*1.3));assert.equal(JSON.stringify([t.d,m,l]),before);});
 check('level one battle compatible with old system',()=>{const m=weeklyMap(t.d,{},'hard'),a=beginBattle(t.d,m,'market','boss','water'),b=beginExplorerBattle(t.d,m,'market','boss','water',emptyLedger());assert.deepEqual(b.player,a.player);assert.deepEqual(battleStep(b,'skill').enemy,battleStep(a,'skill').enemy);});
+
+const fight=(gear=null,route='market',owned=gear?[gear]:[])=>beginExplorerBattle(t.d,weeklyMap(t.d,{},'hard'),route,'boss','water',emptyLedger(),owned,gear);
+check('all shop items have distinct battle effects',()=>{assert.equal(Object.keys(EXPLORER_GEAR).length,8);assert.equal(activeGear([], 'sword'),null);assert.equal(activeGear(['sword'],'sword'),'sword');assert.equal(fight('sword','market',[]).combat.gear,null);});
+check('sword increases normal attack only',()=>{const a=fight(),b=fight('sword');assert.ok(battleStep(b,'attack').enemy.hp<battleStep(a,'attack').enemy.hp);assert.equal(battleStep(b,'skill').enemy.hp,battleStep(a,'skill').enemy.hp);});
+check('shield reduces predicted and actual incoming damage',()=>{const a=fight(),b=fight('shield');assert.ok(incomingDamage(b)<incomingDamage(a));assert.equal(b.player.hp-battleStep(b,'attack').player.hp,incomingDamage(b));});
+check('crown raises initial and maximum MP',()=>{const b=fight('crown');assert.equal(b.player.mp,3);assert.equal(b.player.maxMp,5);});
+check('compass improves skill; lantern improves recovery',()=>{const a=fight(),b=fight('compass');assert.ok(battleStep(b,'skill').enemy.hp<battleStep(a,'skill').enemy.hp);const x=fight('lantern');x.player.hp=50;assert.equal(battleStep(x,'heal').player.hp,50+48-incomingDamage(x));});
+check('title improves guard; relic improves burst',()=>{const a=fight(),b=fight('title');assert.ok(battleStep(b,'guard').player.hp>battleStep(a,'guard').player.hp);const x=fight('relic');x.player.mp=4;a.player.mp=4;assert.ok(battleStep(x,'burst').enemy.hp<battleStep(a,'burst').enemy.hp);});
+check('burst requires four MP and consumes four',()=>{const a=fight();assert.equal(canAct(a,'burst'),false);assert.equal(battleStep(a,'burst'),a);a.player.mp=4;const b=battleStep(a,'burst');assert.equal(b.player.mp,0);assert.ok(a.enemy.hp-b.enemy.hp>36);});
+check('special attack inflicts each elemental status',()=>{for(const [route,id] of [['market','burn'],['trail','exposed'],['citadel','frost']]){const a=fight(null,route);a.turn=3;const b=battleStep(a,'attack');assert.deepEqual(b.combat.status,{id,turns:2});assert.equal(a.combat.status,null);}});
+check('guard and cloak prevent new status',()=>{const a=fight();a.turn=3;assert.equal(battleStep(a,'guard').combat.status,null);const b=fight('cloak');b.turn=3;assert.equal(battleStep(b,'attack').combat.status,null);});
+check('burn ticks twice, then clears',()=>{const a=fight();a.combat.status={id:'burn',turns:2};const b=battleStep(a,'guard');assert.equal(a.player.hp-b.player.hp,incomingDamage(a,true)+5);assert.equal(b.combat.status.turns,1);const c=battleStep(b,'guard');assert.equal(c.combat.status,null);});
+check('frost and exposed change attack and incoming damage',()=>{const a=fight(),b=structuredClone(a);b.combat.status={id:'frost',turns:2};assert.ok(battleStep(b,'attack').enemy.hp>battleStep(a,'attack').enemy.hp);b.combat.status={id:'exposed',turns:2};assert.ok(incomingDamage(b)>incomingDamage(a));});
+check('cleanse consumes MP and removes status before enemy attack',()=>{const a=fight();assert.equal(canAct(a,'cleanse'),false);a.combat.status={id:'burn',turns:2};const b=battleStep(a,'cleanse');assert.equal(b.combat.status,null);assert.equal(b.player.mp,a.player.mp-1);assert.equal(a.player.hp-b.player.hp,incomingDamage(a,false,null));});
+check('legacy battle actions unchanged',()=>{const b=beginBattle(t.d,weeklyMap(t.d),'market','boss','water');assert.equal(Object.keys(actionsFor(b)).length,4);assert.equal(canAct(b,'burst'),false);});
+
 console.log(n+' explorer checks passed');
