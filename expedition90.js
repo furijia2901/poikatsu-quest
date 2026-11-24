@@ -119,7 +119,27 @@
    player:{element,hp:120,maxHp:120,mp:2,maxMp:4,potions:2},
    enemy:{...f,hp:maxHp,maxHp,atk:Math.round(f.atk*scale)},turn:1,status:'active',log:['遠征戦闘開始！']};
  }
+
+ // Hidden challenge: a separate versioned weekly receipt, not a change to v1 denominations.
+ const HIDDEN_BOSS=Object.freeze({name:'虚空の星喰竜ノヴァ',icon:'🌑',element:'wind',hp:250,atk:15,skill:'虚空崩星',reward:40,xp:120});
+ function hiddenRequirements(d,ledger){
+  const claims=validateLedger(ledger).claims,level=explorerProgress(ledger).level;
+  const bossCount=ROUTES.filter(r=>claims.includes(receiptId(d.period.start,r.id,'boss'))).length;
+  const treasures=chestCollection(ledger).unique;
+  const requirements=[{label:'今週の9地点攻略',value:d.cleared,target:9},{label:'今週の通常ボス報酬受取',value:bossCount,target:3},{label:'遠征レベル',value:level,target:5},{label:'地域の宝物を発見',value:treasures,target:2}];
+  return {requirements,unlocked:requirements.every(x=>x.value>=x.target)};
+ }
+ function beginHiddenBattle(d,element,ledger,owned=[],display=null){
+  if(!Object.hasOwn(ELEMENTS,element)||!hiddenRequirements(d,ledger).unlocked)return null;
+  const p=explorerProgress(ledger),gear=activeGear(owned,display),mp=EXPLORER_GEAR[gear]?.mp||0;
+  return {version:2,week:d.period.start,routeId:'all',branchId:'hidden',kind:'hidden',difficulty:'hard',
+   player:{element,hp:p.hp,maxHp:p.hp,mp:2+mp,maxMp:4+mp,potions:2},
+   enemy:{...HIDDEN_BOSS,hp:HIDDEN_BOSS.hp,maxHp:HIDDEN_BOSS.hp},turn:1,status:'active',log:['虚空の裂け目に到達！'],
+   growth:{level:p.level,attack:p.attack,skill:p.skill},combat:{gear,status:null}};
+ }
+ function hiddenPhase(b){return b?.kind==='hidden'&&b.enemy.hp<=b.enemy.maxHp/2?2:1;}
  function enemyIntent(b){
+  if(b.kind==='hidden'){const phase=hiddenPhase(b),special=b.turn%(phase===2?2:3)===0;return {special,name:special?(phase===2?'終焉の星嵐':'虚空崩星'):'虚空の爪',damage:Math.round(b.enemy.atk*(phase===2?1.2:1)*(special?2:1))};}
   const special=b.turn%3===0;
   return {special,name:special?b.enemy.skill:'通常攻撃',damage:Math.round(b.enemy.atk*(special?2.15:1))};
  }
@@ -159,6 +179,7 @@
    const power=action==='attack'?b.growth.attack+(g.attack||0):action==='skill'?b.growth.skill+(g.skill||0):58+Math.floor((b.growth.level-1)/2)+(g.skill||0)+(g.burst||0);
    const damage=Math.max(1,Math.round(power*affinity(p.element,e.element)*(effect?.id==='frost'?0.8:1)));
    e.hp=Math.max(0,e.hp-damage);
+   if(b.kind==='hidden'&&hiddenPhase(b)===1&&e.hp>0&&e.hp<=e.maxHp/2)note('第2形態：虚空覚醒！ 次ターンから大技頻度が上昇');
    p.mp=action==='attack'?Math.min(p.maxMp,p.mp+1):p.mp-(action==='skill'?2:4);
    note(EXPLORER_ACTIONS[action]+'：'+damage+'ダメージ');
   }else if(action==='guard'){
@@ -214,14 +235,14 @@
  const REWARD_VALUES=Object.freeze({step1:5,step2:8,step3:12,chest:15,normal:10,boss:30,weekly:25});
  function receiptId(week,route,kind){
   if(!validDay(week)||new Date(week+'T00:00:00Z').getUTCDay()!==1)return null;
-  if(route==='all')return kind==='weekly'?'v1:'+week+':all:weekly':null;
+  if(route==='all')return kind==='weekly'?'v1:'+week+':all:weekly':kind==='hidden'?'v2:'+week+':all:hidden':null;
   if(!Object.hasOwn(FOES,route)||!Object.hasOwn(REWARD_VALUES,kind)||kind==='weekly')return null;
   return 'v1:'+week+':'+route+':'+kind;
  }
  function receiptValue(id){
   if(typeof id!=='string')return null;
   const [version,week,route,kind,...extra]=id.split(':');
-  return version==='v1'&&!extra.length&&receiptId(week,route,kind)===id?REWARD_VALUES[kind]:null;
+  return !extra.length&&receiptId(week,route,kind)===id?(kind==='hidden'?HIDDEN_BOSS.reward:REWARD_VALUES[kind]):null;
  }
 
  // Immutable chest v1 drops: the receipt is the single source of truth.
@@ -271,7 +292,7 @@
  const MAX_EXPLORER_LEVEL=30;
  function explorerProgress(raw){
   const claims=validateLedger(raw).claims;
-  const xp=claims.reduce((total,id)=>total+EXPLORER_XP[id.split(':')[3]],0);
+  const xp=claims.reduce((total,id)=>total+(id.endsWith(':hidden')?HIDDEN_BOSS.xp:EXPLORER_XP[id.split(':')[3]]),0);
   let level=1,spent=0;
   while(level<MAX_EXPLORER_LEVEL){
    const need=100+20*(level-1);
@@ -306,9 +327,9 @@
   const next=new Set(validateLedger(candidate).claims);
   return validateLedger(previous).claims.filter(id=>!next.has(id));
  }
- function rewardOptions(d,map,battle=null){
+ function rewardOptions(d,map,battle=null,ledger=emptyLedger()){
   const list=[];
-  const add=(route,kind,label,ready)=>list.push({id:receiptId(d.period.start,route,kind),route,kind,label,ready:!!ready,value:REWARD_VALUES[kind]});
+  const add=(route,kind,label,ready)=>list.push({id:receiptId(d.period.start,route,kind),route,kind,label,ready:!!ready,value:kind==='hidden'?HIDDEN_BOSS.reward:REWARD_VALUES[kind]});
   for(const route of d.routes){
    const m=map.find(x=>x.id===route.id);
    route.steps.forEach((step,i)=>add(route.id,'step'+(i+1),route.title+'：'+step.name,step.cleared));
@@ -322,12 +343,13 @@
    }
   }
   add('all','weekly','全9地点攻略',d.cleared===d.total&&d.total===9);
+  const hidden=hiddenRequirements(d,ledger);if(hidden.unlocked||validateLedger(ledger).claims.includes(receiptId(d.period.start,'all','hidden')))add('all','hidden','虚空の星喰竜：討伐報酬',hidden.unlocked&&battle?.kind==='hidden'&&battle.week===d.period.start&&battle.status==='won'&&battle.enemy?.hp===0);
   return list;
  }
  function claimReward(raw,d,map,battle,id){
   const ledger=validateLedger(raw);
   if(ledger.claims.includes(id))return {ledger,credited:0,status:'duplicate'};
-  const option=rewardOptions(d,map,battle).find(x=>x.id===id&&x.ready);
+  const option=rewardOptions(d,map,battle,ledger).find(x=>x.id===id&&x.ready);
   if(!option)return {ledger,credited:0,status:'locked'};
   const next=validateLedger({version:1,claims:[...ledger.claims,id]});
   return {ledger:next,credited:option.value,status:'claimed'};
@@ -540,6 +562,7 @@
   for(const route of ROUTES)for(const kind of ['normal','boss']){
    const foe=FOES[route.id][kind];add('enemy','enemy:'+route.id+':'+kind,foe.name,foe.icon,wins[route.id+':'+kind]||0,route.title+' ／ '+(kind==='boss'?'ボス':'通常敵')+' ／ '+ELEMENTS[foe.element]+'属性');
   }
+  add('enemy','enemy:all:hidden',HIDDEN_BOSS.name,HIDDEN_BOSS.icon,claims.filter(x=>x.endsWith(':all:hidden')).length,'虚空の裂け目 ／ 隠しボス ／ 風属性');
   const groups=Object.fromEntries(Object.keys(CODEX_GROUPS).map(key=>{const rows=entries.filter(x=>x.group===key);return [key,{found:rows.filter(x=>x.found).length,total:rows.length}];}));
   return {entries,groups,found:entries.filter(x=>x.found).length,total:entries.length,fragments:summons.fragments};
  }
@@ -600,6 +623,9 @@
     const cfg=section(dialog,'難易度と属性');
     for(const [id,def] of Object.entries(DIFFICULTIES))button(cfg,def.label+(t.difficulty===id?' ✓':''),()=>{t.difficulty=id;paint();},t.battle?.status==='active');
     for(const [id,label] of Object.entries(ELEMENTS))button(cfg,label+(t.element===id?' ✓':''),()=>{t.element=id;paint();},t.battle?.status==='active');
+    const hidden=section(dialog,'🌑 虚空の裂け目');const hr=hiddenRequirements(t.d,t.ledger);for(const x of hr.requirements)add(hidden,'p',x.label+' '+x.value+'/'+x.target);
+    button(hidden,'隠しボス解放条件を試す',()=>{const claims=ROUTES.flatMap(r=>['step1','step2','step3','chest','normal','boss'].map(k=>receiptId(t.d.period.start,r.id,k))).concat(receiptId(t.d.period.start,'all','weekly'));t.ledger=mergeLedgers(t.ledger,{version:1,claims});show('試験専用の解放条件を設定しました');},!!t.battle);
+    button(hidden,'隠しボスに挑戦',()=>{t.battle=beginHiddenBattle(t.d,t.element,t.ledger,t.owned,t.display);view='battle';show('隠しボス戦開始');},!hr.unlocked||!!t.battle);
     for(const route of t.d.routes){const m=map.find(x=>x.id===route.id),p=section(dialog,route.icon+' '+route.title+' 3/3');add(p,'p',m.region+' ／ '+m.event.name);
      for(const br of m.branches)button(p,br.name+(m.selected.id===br.id?' ✓':''),()=>{t.choices[route.id]=br.id;paint();});
      add(p,'p','宝箱：'+m.selected.chest+'（解放済み）');
@@ -610,7 +636,7 @@
     if(!t.battle){add(p,'p','遠征メニューで敵を選択してください');return;}
     const b=t.battle;add(p,'strong',b.enemy.icon+' '+b.enemy.name+' ／ TURN '+b.turn);
     add(p,'p','HP '+b.player.hp+'/'+b.player.maxHp+' ／ MP '+b.player.mp+'/'+b.player.maxMp+' ／ 薬 '+b.player.potions);
-    add(p,'p','敵HP '+b.enemy.hp+'/'+b.enemy.maxHp);
+    add(p,'p','敵HP '+b.enemy.hp+'/'+b.enemy.maxHp);if(b.kind==='hidden')add(p,'p','形態 '+hiddenPhase(b)+' / 2');
     if(b.status==='active'){const intent=enemyIntent(b);add(p,'p','敵の予告：'+intent.name+' ／ '+intent.damage);
      add(p,'p','装備：'+(b.combat?.gear?SHOP[b.combat.gear].name+' ／ '+EXPLORER_GEAR[b.combat.gear].label:'なし')+' ／ 状態異常：'+statusLabel(b));
      for(const [id,label] of Object.entries(actionsFor(b)))button(p,label,()=>{t.battle=battleStep(t.battle,id);paint();},!canAct(b,id));
@@ -621,8 +647,8 @@
     button(p,'戦闘を終了して遠征へ',()=>{t.battle=null;view='map';paint();});
    }else if(view==='rewards'){
     const p=section(dialog,'試験報酬');
-    const options=rewardOptions(t.d,map,t.battle);
-    add(p,'p','受取履歴：'+t.ledger.claims.length+' / 19件');
+    const options=rewardOptions(t.d,map,t.battle,t.ledger);
+    add(p,'p','受取履歴：'+t.ledger.claims.length+' / '+options.length+'件');
     for(const o of options){const got=t.ledger.claims.includes(o.id);const row=add(p,'div','');add(row,'span',o.label+' ／ ＋'+o.value+' ');
      button(row,got?'受取済み':o.ready?'受け取る':'未解放',()=>{t=sandboxClaim(t,o.id);show((o.kind==='chest'?'🎁 宝箱開封！':'💎 報酬獲得！')+' 星晶石 ＋'+t.lastClaim+(t.lastDrop?' ／ '+t.lastDrop.rarity+' '+t.lastDrop.name:''));},got||!o.ready);
     }
@@ -737,7 +763,7 @@
     const grid=add(growthBox,'div','','pq9-grid');
     for(const [label,value] of [['最大HP',growth.hp],['通常攻撃',growth.attack],['星脈斬',growth.skill]]){const card=add(grid,'div','','pq9-fighter');add(card,'p',label);add(card,'strong',String(value));}
     const rules=add(growthBox,'details','');add(rules,'summary','EXP獲得条件');
-    for(const [label,key] of [['第1地点','step1'],['第2地点','step2'],['第3地点','step3'],['宝箱','chest'],['通常敵','normal'],['ボス','boss'],['週間達成','weekly']])add(rules,'p',label+'：'+EXPLORER_XP[key]+' EXP');
+    for(const [label,key] of [['第1地点','step1'],['第2地点','step2'],['第3地点','step3'],['宝箱','chest'],['通常敵','normal'],['ボス','boss'],['週間達成','weekly'],['隠しボス','hidden']])add(rules,'p',label+'：'+(key==='hidden'?HIDDEN_BOSS.xp:EXPLORER_XP[key])+' EXP');
     add(growthBox,'p','受取済みの遠征報酬から計算。星晶石を使ってもレベルは下がりません。週更新でリセットされません。同期済みの専用台帳から各端末で同じ値を計算します。戦闘開始時のレベルを使用します。','pq9-note');
    }else add(growthBox,'p','台帳を確認できないため育成表示を停止しました。報酬画面で確認してください。');
    const settings=add(panel,'section','','pq9-route');settings.hidden=view!=='map';
@@ -773,7 +799,7 @@
     add(enemyCard,'div',battle.enemy.icon,'pq9-fighter-icon');add(enemyCard,'strong',battle.enemy.name);
     add(enemyCard,'p','HP '+battle.enemy.hp+'/'+battle.enemy.maxHp);
     bar(enemyCard,battle.enemy.hp,battle.enemy.maxHp,'敵HP');
-    add(enemyCard,'p',ELEMENTS[battle.enemy.element]+'属性','pq9-note');
+    add(enemyCard,'p',ELEMENTS[battle.enemy.element]+'属性','pq9-note');if(battle.kind==='hidden')add(enemyCard,'strong','形態 '+hiddenPhase(battle)+' / 2');
     if(battle.status==='active'){
      const intent=enemyIntent(battle);
      const expected=incomingDamage(battle);
@@ -845,7 +871,7 @@
     catch(e){if(scopeNow()===scope)syncMessage='同期中止：'+e.message+'。端末の記録は保持されています。専用テーブルが未設定の場合は導入が必要です。';}
     finally{syncChecking=false;paint();}
    };
-   const options=rewardOptions(d,map,battle);
+   const options=rewardOptions(d,map,battle,previewLedger);
    const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
    const allBtn=add(rewards,'button','受取可能な報酬を一括受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length||!!storageError;
    allBtn.onclick=()=>{let total=0;const drops=[];for(const o of ready){const credited=receiveSaved(o.id);total+=credited;const drop=credited?chestDrop(o.id):null;if(drop)drops.push(drop);}rewardMessage='今回受取：合計 '+total+' 星晶石';paint();if(total)reveal(drops.length?'🎁':'💎','遠征報酬獲得！','星晶石 ＋'+total+' 個'+(drops.length?' ／ 宝箱：'+drops.map(x=>x.rarity+' '+x.name).join('、'):''));};
@@ -875,7 +901,7 @@
     for(const drop of collection.drops.slice(0,30))add(log,'p',drop.week+' ｜ '+drop.rarity+' '+drop.name,'pq9-note');
    }
    const history=add(rewards,'details','');add(history,'summary','受取履歴（'+previewLedger.claims.length+'件）');
-   for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
+   for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成',hidden:'隠しボス'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
    const shop=add(panel,'section','','pq9-route');shop.id='pq9-shop';shop.hidden=view!=='shop';
    add(shop,'h3','🏪 星巡り遠征ショップ');
    const w=storageError||shopError||drawError?null:wallet(previewLedger,owned,draws);
@@ -1045,6 +1071,16 @@
      bar(item,step.value,step.target,step.name);
     }
    }
+
+   const hiddenBox=add(panel,'section','','pq9-route');hiddenBox.id='pq10-hidden';hiddenBox.hidden=view!=='map';
+   add(hiddenBox,'h3','🌑 虚空の裂け目');
+   if(!storageError&&!shopError){
+    const hr=hiddenRequirements(d,previewLedger);add(hiddenBox,'strong',hr.unlocked?HIDDEN_BOSS.name:'？？？（未解放）');
+    for(const x of hr.requirements){add(hiddenBox,'p',(x.value>=x.target?'✓ ':'🔒 ')+x.label+' '+Math.min(x.value,x.target)+'/'+x.target,'pq9-note');bar(hiddenBox,Math.min(x.value,x.target),x.target,x.label);}
+    add(hiddenBox,'p','高難度固定。HP半分以下で覚醒し、大技の頻度が増加。討伐報酬は週1回：星晶石40個・遠征EXP120。','pq9-note');
+    const fight=add(hiddenBox,'button','隠しボスに挑戦');fight.type='button';fight.disabled=!hr.unlocked||!!battle;
+    fight.onclick=()=>{if(battle||activeScope!==scopeNow())return;try{const fresh=derive(typeof s==='undefined'?{}:s),items=readOwned(localStorage,activeScope);if(fresh.period.start!==selectedWeek){paint();return;}battle=beginHiddenBattle(fresh,element,readReceipts(localStorage,activeScope),items,readDisplay(localStorage,activeScope,items));if(battle)view='battle';paint();}catch(e){rewardMessage='挑戦中止：'+e.message;paint();}};
+   }else add(hiddenBox,'p','台帳の確認が必要です。');
    add(panel,'p','毎週月曜0時にマップ更新。分岐・難易度の選択は画面内だけ保持し、再読み込みで初期化します。宝箱は報酬受取時に限定収集品が確定します。遭遇イベントは発見表示のみ。戦闘は画面内で保持し、再読み込みや週更新で終了します。星晶石は独立した端末台帳に保存します。通常セーブには書き込みません。','pq9-note');
    const refresh=add(panel,'button','↻ 進捗を更新');refresh.type='button';refresh.onclick=paint;
   }
@@ -1052,7 +1088,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)paint();});
   window.addEventListener('storage',e=>{if(e.key===null||e.key?.startsWith(RECEIPT_PREFIX)||e.key?.startsWith(SHOP_PREFIX)||e.key?.startsWith(EQUIP_PREFIX)||e.key?.startsWith(DRAW_PREFIX)||e.key?.startsWith(PENDING_PREFIX))paint();});
  }
- if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,expeditionCodex,filterCodex,CODEX_GROUPS,GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
+ if(typeof module==='object'&&module.exports)module.exports={period,derive,weeklyMap,battleEligible,beginBattle,beginExplorerBattle,beginHiddenBattle,hiddenRequirements,hiddenPhase,HIDDEN_BOSS,explorerProgress,CHEST_RARITIES,CHEST_ITEMS,chestRarity,chestRoll,chestDrop,chestCollection,expeditionCodex,filterCodex,CODEX_GROUPS,GACHA_ITEMS,GACHA_COST,GACHA_PITY,validateDraws,gachaSummary,drawItem,drawPlan,readDraws,saveDraws,drawGuest,EXPLORER_GEAR,STATUS_EFFECTS,actionsFor,activeGear,incomingDamage,EXPLORER_XP,MAX_EXPLORER_LEVEL,enemyIntent,affinity,canAct,battleStep,receiptId,receiptValue,emptyLedger,validateLedger,ledgerBalance,mergeLedgers,ledgerLoss,rewardOptions,claimReward,planLedgerSync,readReceipts,persistReceipt,persistClaim,syncReceipts,SHOP,validateOwned,readOwned,wallet,purchasePlan,storeOwned,buyGuest,collectionMilestones,readDisplay,setDisplay,createSandbox,sandboxWallet,sandboxClaim,sandboxBuy};
  else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
  else mount();
 })(typeof globalThis!=='undefined'?globalThis:this);
