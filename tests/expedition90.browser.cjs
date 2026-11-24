@@ -66,13 +66,12 @@ const server=http.createServer((req,res)=>{
    const sandbox=page.locator('#pq91-sandbox');await sandbox.waitFor({state:'visible'});
    assert.match(await sandbox.innerText(),/1000 個/);
    await sandbox.getByRole('button',{name:'報酬',exact:true}).click();
-   const chest=sandbox.locator('div').filter({has: sandbox.locator('span').filter({hasText:'黄金街道：宝箱'})}).filter({hasText:'黄金街道：宝箱'});
    const row=sandbox.locator('span').filter({hasText:'黄金街道：宝箱'}).locator('..');
    await row.getByRole('button',{name:'受け取る',exact:true}).click();
    assert.match(await sandbox.innerText(),/1015 個/);
    assert.equal(await row.getByRole('button',{name:'受取済み',exact:true}).isDisabled(),true);
    await sandbox.getByRole('button',{name:'ショップ',exact:true}).click();
-   const sword=sandbox.locator('section').filter({has: sandbox.getByRole('heading',{name:/星断の剣/})}).last();
+   const sword=sandbox.getByRole('heading',{name:/星断の剣/}).locator('..');
    await sword.getByRole('button',{name:'交換する',exact:true}).click();
    assert.match(await sandbox.innerText(),/955 個/);
    await sword.getByRole('button',{name:'遠征に展示',exact:true}).click();
