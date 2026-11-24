@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs');
-const {VERSION,TITLE_LINKS,NEWS,titleTarget,stars}=require('../game105.js');
+const {VERSION,TITLE_LINKS,NEWS,titleTarget,stars,HOME_LINKS,HOME_FEATURES,homeStatus}=require('../game105.js');
 const {GROUPS}=require('../ui92.js');
 assert.equal(VERSION,'10.5');assert.equal(TITLE_LINKS.length,5);
 assert.equal(new Set(TITLE_LINKS.map(x=>x.id)).size,5);
@@ -12,3 +12,10 @@ assert.ok(html.indexOf('src="./game105.js"')>html.indexOf('src="./ui92.js"'));
 assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(source),'title shell must not persist or send data');
 assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(source),'title shell must not write game state');
 console.log('PASS title routes, deterministic art, script load order and presentation-only safety');
+
+assert.equal(HOME_LINKS.length,12);assert.equal(new Set(HOME_LINKS.map(x=>x[0])).size,12);
+for(const link of [...HOME_LINKS,...HOME_FEATURES])assert.ok(GROUPS.some(g=>g.tabs.includes(link[0])),link[0]);
+assert.equal(homeStatus({level:'Lv.5',gold:'🪙 250G',energy:'⚡ 2',progress:67}).level,'Lv.5');
+assert.equal(homeStatus({progress:200}).progress,100);assert.equal(homeStatus({progress:-1}).progress,0);assert.equal(homeStatus({progress:'bad'}).progress,0);
+assert.equal(homeStatus({name:''}).name,'冒険者');
+console.log('PASS home links, featured routes and read-only HUD projection');
