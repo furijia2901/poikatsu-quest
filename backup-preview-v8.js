@@ -1,5 +1,5 @@
 'use strict';
-/* POIKATSU QUEST v8: backup comparison preview. Never restores or writes saves. */
+/* POIKATSU QUEST v8: backup comparison preview. Includes explicitly gated offline local restoration. */
 (function(){
  const clone=x=>JSON.parse(JSON.stringify(x));
  const stable=x=>Array.isArray(x)?x.map(stable):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])])):x;
@@ -44,7 +44,7 @@
   return {issues,identical:equal(current,backup.saveData),snapshot:JSON.stringify(current)};
  }
 
- // Only used with a private in-memory store at this stage.
+ // Storage transaction with verified rescue copy.
  function restoreTransaction(store,expected,candidate){
   const original=store.read();
   if(original!==expected)throw Error('比較後にデータが変更されました');
@@ -88,16 +88,43 @@
   const wrap=document.createElement('section');wrap.id='pq-backup-preview-v8';wrap.style.marginTop='14px';
   const heading=document.createElement('strong');heading.textContent='🧭 第8弾：バックアップ復旧プレビュー';
   const note=document.createElement('p');note.className='cloud-note';
-  note.textContent='JSONファイルと現在の端末セーブを比較するだけ。復元・上書き・クラウド通信はしません。';
+  note.textContent='比較と隔離検証は読み取り専用です。実復元はログアウト・オフライン時のみ、明示確認後に実行できます。';
   const input=document.createElement('input');input.type='file';input.accept='.json,application/json';
   input.setAttribute('aria-label','比較するバックアップファイル');
   const output=document.createElement('pre');output.setAttribute('aria-live','polite');
   output.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px';
-  let prepared=null, generation=0;
+  let prepared=null, generation=0, staged=false, exported=false;
   const safety=document.createElement('p');safety.className='cloud-note';safety.setAttribute('aria-live','polite');
+  const apply=document.createElement('button');apply.type='button';apply.textContent='端末セーブを復元（ログアウト・オフライン専用）';apply.disabled=true;
+  const refreshApply=()=>{apply.disabled=!(prepared&&staged&&exported);};
+  apply.addEventListener('click',()=>{
+   try{
+    if(!prepared||!staged||!exported)throw Error('退避と隔離検証が必要です');
+    if(navigator.onLine||cloud.session||cloud.enabled||cloud.busy||cloud.checking||cloud.dirty||localStorage.getItem(CLOUD_SESSION_KEY))throw Error('ログアウトし、ネットワークを切断してください');
+    if(!confirm('他のタブをすべて閉じ、退避JSONを保存したことを確認してください。この端末だけを復元します。'))return;
+    if(prompt('復元を実行するには RESTORE と入力してください')!=='RESTORE')return;
+    const before=localStorage.getItem(KEY);
+    if(!before||JSON.stringify(s)!==prepared.snapshot||!equal(JSON.parse(before),JSON.parse(prepared.snapshot)))throw Error('比較後にセーブが変更されました');
+    if(navigator.onLine||cloud.session||cloud.enabled||cloud.busy||cloud.checking||cloud.dirty||localStorage.getItem(CLOUD_SESSION_KEY))throw Error('同期状態が変化しました');
+    clearTimeout(cloud.timer);
+    const reserveKey='pq-restore-rescue-'+crypto.randomUUID();
+    const store={read:()=>localStorage.getItem(KEY),reserve:v=>localStorage.setItem(reserveKey,v),readReserved:()=>localStorage.getItem(reserveKey),write:v=>localStorage.setItem(KEY,v)};
+    const candidate=clone(prepared.candidate);
+    restoreTransaction(store,before,candidate);
+    try{s=candidate;render();}
+    catch(e){
+     if(localStorage.getItem(KEY)===JSON.stringify(candidate))localStorage.setItem(KEY,before);
+     s=JSON.parse(before);try{render();}catch(ignore){}
+     throw Error('画面更新に失敗しました。退避データを確認してください');
+    }
+    cloud.enabled=false;cloud.dirty=false;cloud.revision=null;cloud.lastSynced='';
+    prepared=null;staged=false;exported=false;stage.disabled=true;rescue.disabled=true;refreshApply();
+    safety.textContent='端末復元完了。クラウドは未変更です。退避キー：'+reserveKey;
+   }catch(e){safety.textContent='⚠️ 復元中止：'+e.message;prepared=null;staged=false;exported=false;stage.disabled=true;rescue.disabled=true;refreshApply();}
+  });
   const stage=document.createElement('button');stage.type='button';stage.textContent='復元候補を端末内の隔離領域で検証';stage.disabled=true;
   stage.addEventListener('click',()=>{
-   let stageKey,reserveKey;
+   let stageKey,reserveKey;staged=false;refreshApply();
    try{
     if(!prepared||JSON.stringify(s)!==prepared.snapshot)throw Error('端末データが変化しました。再比較してね');
     if(typeof cloud==='undefined'||cloud.busy||cloud.checking)throw Error('同期処理中は検証できません');
@@ -110,11 +137,11 @@
     const store={read:()=>localStorage.getItem(stageKey),reserve:v=>localStorage.setItem(reserveKey,v),readReserved:()=>localStorage.getItem(reserveKey),write:v=>localStorage.setItem(stageKey,v)};
     const result=restoreTransaction(store,before,prepared.candidate);
     if(localStorage.getItem(KEY)!==before||JSON.stringify(s)!==prepared.snapshot)throw Error('検証中に実セーブが変化しました');
-    safety.textContent='🟢 隔離復元検証PASS：'+result+'。実セーブとクラウドは変更していません。';
+    staged=true;refreshApply();safety.textContent='🟢 隔離復元検証PASS：'+result+'。実セーブとクラウドは変更していません。';
    }catch(e){safety.textContent='⚠️ 隔離復元検証中止：'+e.message;}
    finally{
     try{if(stageKey)localStorage.removeItem(stageKey);if(reserveKey)localStorage.removeItem(reserveKey);}
-    catch(e){safety.textContent+='／隔離領域の削除に失敗しました。';}
+    catch(e){staged=false;refreshApply();safety.textContent+='／隔離領域の削除に失敗しました。';}
    }
   });
   const rescue=document.createElement('button');rescue.type='button';rescue.textContent='復元前の退避用バックアップを保存';rescue.disabled=true;
@@ -126,12 +153,12 @@
     const url=URL.createObjectURL(blob),a=document.createElement('a');
     a.href=url;a.download='poikatsu-quest-pre-restore-'+now.replace(/[:.]/g,'-')+'.json';
     document.body.appendChild(a);
-    try{a.click();safety.textContent='退避ファイルのダウンロードを開始しました。保存先を確認してね。復元はまだ行いません。';}
+    try{a.click();exported=true;refreshApply();safety.textContent='退避ファイルのダウンロードを開始しました。保存先を確認してね。復元はまだ行いません。';}
     finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-   }catch(e){safety.textContent='⚠️ '+e.message;rescue.disabled=true;stage.disabled=true;prepared=null;}
+   }catch(e){safety.textContent='⚠️ '+e.message;rescue.disabled=true;stage.disabled=true;prepared=null;refreshApply();}
   });
   input.addEventListener('change',async()=>{
-   const run=++generation;prepared=null;rescue.disabled=true;stage.disabled=true;safety.textContent='';
+   const run=++generation;prepared=null;staged=false;exported=false;refreshApply();rescue.disabled=true;stage.disabled=true;safety.textContent='';
    const f=input.files&&input.files[0];if(!f)return;
    output.textContent='比較中…';
    try{
@@ -167,7 +194,7 @@
    const results=runRestoreTests(),passed=results.filter(x=>x.pass).length;
    report.textContent=passed+'/'+results.length+' PASS\n'+results.map(x=>(x.pass?'✅ ':'❌ ')+x.name).join('\n')+'\n※メモリ上の架空データのみ。実際のセーブ・クラウドは変更していません。';
   });
-  wrap.append(heading,note,input,output,safety,rescue,stage,test,report);panel.appendChild(wrap);
+  wrap.append(heading,note,input,output,safety,rescue,stage,apply,test,report);panel.appendChild(wrap);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
