@@ -149,7 +149,7 @@
   const search=el('input');search.type='search';search.placeholder='コンテンツを検索（例：ガチャ、散歩）';search.setAttribute('aria-label','コンテンツ検索');dialog.append(search);
   const filters=el('div','','pq105-menu-filters');dialog.append(filters);
   const body=el('div','','pq105-menu-content');dialog.append(body);
-  const foot=el('div','','pq105-menu-foot');for(const [kind,label] of [['inventory','🎒 総合持ち物'],['gacha','🌠 ガチャセンター'],['codex','📖 総合図鑑']])button(foot,label,()=>{dialog.close();window.PQ105Collection?.open?.(kind,false);});button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
+  const foot=el('div','','pq105-menu-foot');for(const [mode,label] of [['news','📢 お知らせ'],['gifts','🎁 プレゼント']])button(foot,label,()=>{dialog.close();window.PQ105Inbox?.open?.(mode,false);});for(const [kind,label] of [['inventory','🎒 総合持ち物'],['gacha','🌠 ガチャセンター'],['codex','📖 総合図鑑']])button(foot,label,()=>{dialog.close();window.PQ105Collection?.open?.(kind,false);});button(foot,'◀ タイトル画面へ',()=>{dialog.close();openTitle();});dialog.append(foot);
   document.body.append(dialog);
   let group='all';
   const groups=[...new Map(entries.map(e=>[e.groupId,e.group])).entries()];
@@ -216,6 +216,7 @@
   mountHome(nav);
   window.PQ105Profile?.mount();
   window.PQ105Collection?.mount(nav);
+  window.PQ105Inbox?.mount(nav);
   const dialog=el('dialog');dialog.id='pq105-title';dialog.setAttribute('aria-label','POIKATSU QUEST タイトル画面');
   dialog.append(landscape(),el('div','','pq105-shade'));
   const stage=el('div','','pq105-stage');dialog.append(stage);
