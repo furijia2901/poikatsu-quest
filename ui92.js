@@ -47,6 +47,12 @@
    const panel=document.getElementById(id);if(!panel||panel.dataset.ui92Sections)continue;
    const nodes=[...panel.querySelectorAll(def.selector)];
    if(!layoutValid(def,nodes.length))continue;
+   // Codex was nested inside the boss card; move the original node outside
+   // before independent visibility is applied. Keep the original DOM order in nodes.
+   if(id==='event40'){
+    const boss=panel.querySelector('#v44-boss-section'),codex=panel.querySelector('#v46-codex');
+    if(boss&&codex&&boss.contains(codex))boss.after(codex);
+   }
    const menu=document.createElement('div');menu.className='pq92-screen-nav';menu.setAttribute('aria-label','画面内メニュー');
    const buttons=[];
    function select(index){
