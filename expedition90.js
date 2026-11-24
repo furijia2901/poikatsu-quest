@@ -350,16 +350,30 @@
    '#expedition90 .pq9-label{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;font-size:.9rem}'+
    '#expedition90 progress{width:100%;height:9px;accent-color:#e9c779}#expedition90 .pq9-note{color:#c7d2e9;font-size:.85rem;line-height:1.6}'+
    '#expedition90 .pq9-arena{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 0}#expedition90 .pq9-fighter{padding:12px;border-radius:14px;text-align:center;background:linear-gradient(160deg,#344660,#20263f);min-width:0}#expedition90 .pq9-fighter p{overflow-wrap:anywhere}#expedition90 .pq9-fighter-icon{font-size:clamp(2rem,8vw,3.5rem);margin:4px}#expedition90 .pq9-intent{padding:10px;border:1px solid #6f8fae;border-radius:10px;display:block}#expedition90 .pq9-danger{border-color:#edb27e;color:#ffd5a4;background:#50352f}#expedition90 .pq9-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}#expedition90 .pq9-actions button{white-space:normal;min-height:44px;overflow-wrap:anywhere}#expedition90 .pq9-route select{max-width:100%;padding:8px;border-radius:8px}';
+
+  style.textContent+='#expedition90 [hidden]{display:none!important}#expedition90 .pq9-menu{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:12px 0}#expedition90 .pq9-menu button{min-height:44px;white-space:normal;margin:0;padding:8px 4px}#expedition90 .pq9-menu button[aria-pressed=true]{border:1px solid #f1d292;background:#55486a;color:#fff4dc}#expedition90 .pq9-route{margin:10px 0;overflow-wrap:anywhere}#expedition90 .pq9-grid .pq9-route{margin:0}#expedition90 .pq9-route button{max-width:100%;white-space:normal;min-height:44px}#expedition90 .pq9-hero{position:relative;overflow:hidden;background:radial-gradient(ellipse at 85% 5%,#8172b877,transparent 55%),radial-gradient(circle at 8% 90%,#2b799955,transparent 50%),linear-gradient(145deg,#202b49,#10172e)}#expedition90 .pq9-hero h2{letter-spacing:.04em}#expedition90 .pq9-mapline{border-left:2px solid #ad98dd;padding-left:12px;margin:10px 0}#expedition90 .pq9-win{border-color:#e9c779;box-shadow:inset 0 0 20px #b39b5830}#expedition90 .pq9-item-owned{border-color:#a5d9b1}#pq9-reveal{box-sizing:border-box;width:min(420px,calc(100% - 28px));max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #e9c779;border-radius:20px;padding:24px;background:radial-gradient(ellipse at 50% 0%,#64548c,#17213b 65%);color:#fff5db;text-align:center;box-shadow:0 12px 50px #0009}#pq9-reveal::backdrop{background:#050915cc}#pq9-reveal .pq9-reveal-icon{font-size:64px;margin:8px;animation:pq9-reveal .55s cubic-bezier(.2,.7,.2,1) both}#pq9-reveal button{min-height:44px;width:100%}@keyframes pq9-reveal{from{transform:scale(.6);opacity:.2}to{transform:scale(1);opacity:1}}@media(max-width:420px){#expedition90 .pq9-menu{grid-template-columns:repeat(2,minmax(0,1fr))}#expedition90 .pq9-arena{gap:6px}#expedition90 .pq9-fighter{padding:8px}}@media(prefers-reduced-motion:reduce){#pq9-reveal .pq9-reveal-icon{animation:none}}';
   document.head.append(style);
   function add(parent,tag,text,cls){const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;}
   function bar(parent,value,max,label){const e=document.createElement('progress');e.max=max;e.value=value;e.setAttribute('aria-label',label);parent.append(e);}
-  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='',owned=[],shopError='',shopBusy=false,shopMessage='';
+  let selectedWeek='',choices={},difficulty='easy',element='fire',battle=null,previewLedger=emptyLedger(),rewardMessage='',syncMessage='',syncChecking=false,activeScope='',storageError='',owned=[],shopError='',shopBusy=false,shopMessage='',view='map';
   const scopeNow=()=>typeof cloud!=='undefined'&&cloud.session?.user?.id?'account:'+cloud.session.user.id:'guest';
   function refreshLedger(){try{previewLedger=readReceipts(localStorage,activeScope);storageError='';}catch(e){storageError=e.message;}try{owned=readOwned(localStorage,activeScope);shopError='';}catch(e){shopError=e.message;}}
   function receiveSaved(id){
    if(activeScope!==scopeNow()||storageError)return 0;
    try{const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty),result=persistClaim(localStorage,activeScope,fresh,freshMap,battle,id);previewLedger=result.ledger;rewardMessage=result.status==='claimed'?'✓ 星晶石 '+result.credited+' 個を受取':result.status==='duplicate'?'受取済みです':'まだ条件を達成していません';return result.credited;}
    catch(e){rewardMessage='受取中止：'+e.message;refreshLedger();return 0;}
+  }
+
+  const VIEWS=[['map','🧭 遠征'],['battle','⚔️ 戦闘'],['rewards','💎 報酬'],['shop','🏪 ショップ']];
+  function changeView(id){if(!VIEWS.some(v=>v[0]===id))return;view=id;paint();}
+  function reveal(icon,title,body){
+   if(typeof HTMLDialogElement==='undefined'||!HTMLDialogElement.prototype.showModal)return;
+   const old=document.getElementById('pq9-reveal');if(old){old.close();old.remove();}
+   const dialog=document.createElement('dialog');dialog.id='pq9-reveal';dialog.setAttribute('aria-labelledby','pq9-reveal-title');
+   add(dialog,'div',icon,'pq9-reveal-icon');const h=add(dialog,'h2',title);h.id='pq9-reveal-title';add(dialog,'p',body);
+   const close=add(dialog,'button','閉じる');close.type='button';close.onclick=()=>dialog.close();
+   dialog.addEventListener('close',()=>{dialog.remove();panel.querySelector('[data-pq9-view="'+view+'"]')?.focus();},{once:true});
+   document.body.append(dialog);dialog.showModal();close.focus();
   }
   function paint(){
    if(!panel.classList.contains('active'))return;
@@ -376,7 +390,9 @@
    add(hero,'strong',d.rank+'　｜　'+d.cleared+' / '+d.total+' 地点攻略');
    bar(hero,d.cleared,d.total,'遠征全体の攻略進捗');
    add(hero,'p','今週のポイ活 '+d.metrics.quests+'件 ／ 外出 '+d.metrics.outdoor+'件 ／ 両方達成 '+d.metrics.combinedDays+'日','pq9-note');
-   const settings=add(panel,'section','','pq9-route');
+   const menu=add(panel,'div','','pq9-menu');menu.setAttribute('aria-label','遠征メニュー');
+   for(const [id,label] of VIEWS){const b=add(menu,'button',label);b.type='button';b.dataset.pq9View=id;b.setAttribute('aria-pressed',String(view===id));b.onclick=()=>{changeView(id);panel.querySelector('[data-pq9-view="'+id+'"]')?.focus();};}
+   const settings=add(panel,'section','','pq9-route');settings.hidden=view!=='map';
    add(settings,'h3','🧭 今週の遠征マップ');
    add(settings,'p','分岐と難易度を選んで探索条件を確認しよう。既存の9地点攻略は変わりません。','pq9-note');
    const difficultyLabel=add(settings,'label','探索難易度　');
@@ -384,7 +400,7 @@
    for(const [id,def] of Object.entries(DIFFICULTIES)){const option=document.createElement('option');option.value=id;option.textContent=def.label;select.append(option);}
    select.value=difficulty;select.onchange=()=>{difficulty=select.value;paint();panel.querySelector('select')?.focus();};difficultyLabel.append(select);
    const battleBox=add(panel,'section','','pq9-route');
-   battleBox.id='pq9-battle';
+   battleBox.id='pq9-battle';battleBox.hidden=view!=='battle';if(battle?.status==='won')battleBox.classList.add('pq9-win');
    const battleTitle=add(battleBox,'h3','⚔️ 遠征バトル');battleTitle.tabIndex=-1;
    if(!battle){
     add(battleBox,'p','最初の地点を攻略すると番兵戦、全3地点と分岐条件を達成するとボス戦が解放。専用ステータスで挑戦できます。','pq9-note');
@@ -392,6 +408,7 @@
     const elSelect=document.createElement('select');elSelect.setAttribute('aria-label','戦闘属性');
     for(const [id,name] of Object.entries(ELEMENTS)){const opt=document.createElement('option');opt.value=id;opt.textContent=name;elSelect.append(opt);}
     elSelect.value=element;elSelect.onchange=()=>{element=elSelect.value;};elLabel.append(elSelect);
+    const goMap=add(battleBox,'button','遠征マップで敵を選ぶ');goMap.type='button';goMap.onclick=()=>changeView('map');
     add(battleBox,'p','相性：炎 → 風 → 水 → 炎（有利30%増／不利20%減）','pq9-note');
    }else{
     add(battleBox,'p',battle.enemy.icon+' '+battle.enemy.name+' ／ '+DIFFICULTIES[battle.difficulty].label+' ／ '+ELEMENTS[battle.enemy.element]);
@@ -421,19 +438,19 @@
     if(battle.status==='won'){
      const id=receiptId(battle.week,battle.routeId,battle.kind),claimed=previewLedger.claims.includes(id);
      const prize=add(battleBox,'button',claimed?'報酬受取済み':'勝利報酬を受取（'+receiptValue(id)+' 星晶石）');prize.type='button';prize.disabled=claimed||!!storageError;
-     prize.onclick=()=>{receiveSaved(id);paint();};
+     prize.onclick=()=>{const credited=receiveSaved(id);paint();if(credited)reveal('🏆','勝利報酬獲得！','星晶石 ＋'+credited+' 個');};
     }
     const log=add(battleBox,'div','','pq9-note');log.setAttribute('aria-live','polite');
     for(const line of battle.log.slice(-6))add(log,'p',line);
     const exit=add(battleBox,'button',battle.status==='active'?'戦闘を中断':'戦闘結果を閉じる');exit.type='button';
-    exit.onclick=()=>{if(battle.status==='active'&&!confirm('戦闘を中断しますか？'))return;battle=null;paint();};
+    exit.onclick=()=>{if(battle.status==='active'&&!confirm('戦闘を中断しますか？'))return;battle=null;view='map';paint();};
    }
-   const rewards=add(panel,'section','','pq9-route');
+   const rewards=add(panel,'section','','pq9-route');rewards.hidden=view!=='rewards';
    add(rewards,'h3','💎 遠征報酬・星晶石');
    add(rewards,'strong',storageError?'残高確認不可':'獲得累計：'+ledgerBalance(previewLedger)+' 星晶石');
    add(rewards,'p','星晶石は通常セーブとは別に、このブラウザに保存されます。ログイン中のアカウントとゲストの台帳は別です。クラウド同期は専用テーブルが必要です。','pq9-note');
    const statusLine=add(rewards,'p',storageError?'⚠️ 保存停止：'+storageError:rewardMessage,'pq9-note');statusLine.setAttribute('role','status');
-   function receive(id){receiveSaved(id);paint();}
+   function receive(id){const credited=receiveSaved(id);paint();if(credited)reveal(id.endsWith(':chest')?'🎁':'💎',id.endsWith(':chest')?'宝箱開封！':'報酬獲得！','星晶石 ＋'+credited+' 個');}
    const syncText=add(rewards,'p',syncMessage,'pq9-note');syncText.setAttribute('role','status');
    const syncBtn=add(rewards,'button',syncChecking?'クラウド診断中…':'☁️ 遠征台帳の同期診断（読取専用）');syncBtn.type='button';syncBtn.disabled=syncChecking;
    syncBtn.onclick=async()=>{
@@ -479,7 +496,7 @@
    const options=rewardOptions(d,map,battle);
    const ready=options.filter(o=>o.ready&&!previewLedger.claims.includes(o.id));
    const allBtn=add(rewards,'button','受取可能な報酬を一括受取（'+ready.length+'件）');allBtn.type='button';allBtn.disabled=!ready.length||!!storageError;
-   allBtn.onclick=()=>{let total=0;for(const o of ready)total+=receiveSaved(o.id);rewardMessage='今回受取：合計 '+total+' 星晶石';paint();};
+   allBtn.onclick=()=>{let total=0;for(const o of ready)total+=receiveSaved(o.id);rewardMessage='今回受取：合計 '+total+' 星晶石';paint();if(total)reveal('💎','遠征報酬獲得！','星晶石 ＋'+total+' 個');};
    const detail=add(rewards,'details','');add(detail,'summary','報酬一覧（'+options.filter(o=>previewLedger.claims.includes(o.id)).length+'/'+options.length+'件受取済み）');
    for(const o of options){
     const claimed=previewLedger.claims.includes(o.id);
@@ -489,7 +506,7 @@
    }
    const history=add(rewards,'details','');add(history,'summary','受取履歴（'+previewLedger.claims.length+'件）');
    for(const id of [...previewLedger.claims].reverse().slice(0,30)){const [,week,route,kind]=id.split(':');add(history,'p',week+' ｜ '+(d.routes.find(r=>r.id===route)?.title||'全体')+' ｜ '+({step1:'第1地点',step2:'第2地点',step3:'第3地点',chest:'宝箱',normal:'通常敵',boss:'ボス',weekly:'週間達成'})[kind]+' ＋'+receiptValue(id),'pq9-note');}
-   const shop=add(panel,'section','','pq9-route');shop.id='pq9-shop';
+   const shop=add(panel,'section','','pq9-route');shop.id='pq9-shop';shop.hidden=view!=='shop';
    add(shop,'h3','🏪 星巡り遠征ショップ');
    const w=storageError||shopError?null:wallet(previewLedger,owned);
    add(shop,'strong',w?'💎 利用可能（端末記録）：'+w.balance+' ／ 消費 '+w.spent:'購入履歴の確認が必要です');
@@ -524,6 +541,7 @@
       if(!['purchased','duplicate','insufficient'].includes(status))throw Error('購入結果が不明です。購入履歴を同期してください');
       await refreshPurchases(scope);
      }
+     if(scopeNow()===scope&&status==='purchased')reveal(item.icon,item.name+' 獲得！','遠征コレクションに追加しました。');
      if(scopeNow()===scope)shopMessage=({purchased:'🎉 '+item.name+' を獲得！',duplicate:'すでに所持しています',insufficient:'星晶石が不足しています。ログイン中は先に星晶石を同期してね。'})[status]||'購入できませんでした';
     }catch(e){if(scopeNow()===scope)shopMessage='購入確認：'+e.message+'。クラウド購入の場合は履歴を同期してください。';}
     finally{shopBusy=false;paint();}
@@ -533,7 +551,7 @@
     const card=add(catalog,'div','','pq9-route');
     add(card,'div',item.icon,'pq9-fighter-icon');add(card,'strong',item.name);
     add(card,'p',item.type+' ｜ 💎 '+item.cost,'pq9-note');add(card,'p',item.description,'pq9-note');
-    const got=owned.includes(id),button=add(card,'button',got?'獲得済み':shopBusy?'処理中':'交換する');button.type='button';
+    const got=owned.includes(id);if(got)card.classList.add('pq9-item-owned');const button=add(card,'button',got?'獲得済み':shopBusy?'処理中':'交換する');button.type='button';
     button.disabled=got||shopBusy||!!storageError||!!shopError||(activeScope==='guest'&&(!w||w.balance<item.cost));button.onclick=()=>buy(id);
     if(got){const eq=add(card,'button',display===id?'展示解除':'遠征に展示');eq.type='button';eq.onclick=()=>{if(scopeNow()!==activeScope)return;try{setDisplay(localStorage,activeScope,readOwned(localStorage,activeScope),display===id?null:id);}catch(e){shopMessage=e.message;}paint();};}
    }
@@ -553,14 +571,14 @@
    bar(collection,owned.length,Object.keys(SHOP).length,'コレクション達成度');
    for(const m of collectionMilestones(previewLedger,owned)){add(collection,'p',(m.done?'✓ ':'◇ ')+m.name+'　'+Math.min(m.value,m.target)+'/'+m.target,'pq9-note');}
    add(collection,'p','長期実績は表示専用。展示設定は端末内のみ保存されます。','pq9-note');
-   const grid=add(panel,'div','','pq9-grid');
+   const grid=add(panel,'div','','pq9-grid');grid.hidden=view!=='map';
    for(const route of d.routes){
     const card=add(grid,'section','','pq9-route');
     add(card,'h3',route.icon+' '+route.title+'　'+route.cleared+'/3');
     add(card,'p',route.subtitle,'pq9-note');
     const m=map.find(x=>x.id===route.id);
     add(card,'h4',m.region);add(card,'p',m.weather+' ／ '+m.story,'pq9-note');
-    const branchBox=add(card,'div','','pq9-step');
+    const branchBox=add(card,'div','','pq9-step pq9-mapline');
     add(branchBox,'strong','分岐探索');
     for(const branch of m.branches){
      const option=add(branchBox,'button',(m.selected.id===branch.id?'✓ ':'')+branch.name);
@@ -585,7 +603,7 @@
       const fresh=derive(typeof s==='undefined'?{}:s),freshMap=weeklyMap(fresh,choices,difficulty);
       if(fresh.period.start!==selectedWeek){paint();return;}
       battle=beginBattle(fresh,freshMap,route.id,kind,element);
-      paint();if(battle){const target=panel.querySelector('#pq9-battle h3');target?.focus();target?.scrollIntoView({block:'start'});}
+      if(battle)view='battle';paint();if(battle){const target=panel.querySelector('#pq9-battle h3');target?.focus();target?.scrollIntoView({block:'start'});}
      };
     }
     for(const step of route.steps){
