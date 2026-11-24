@@ -1,0 +1,14 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {VERSION,TITLE_LINKS,NEWS,titleTarget,stars}=require('../game105.js');
+const {GROUPS}=require('../ui92.js');
+assert.equal(VERSION,'10.5');assert.equal(TITLE_LINKS.length,5);
+assert.equal(new Set(TITLE_LINKS.map(x=>x.id)).size,5);
+for(const link of TITLE_LINKS)if(link.target)assert.ok(GROUPS.some(g=>g.tabs.includes(link.target)));
+assert.equal(titleTarget('start'),'home');assert.equal(titleTarget('account'),'settings92');assert.equal(titleTarget('settings'),'settings92');assert.equal(titleTarget('news'),null);assert.equal(titleTarget('invalid'),null);
+assert.ok(NEWS.every(x=>x.title&&x.body));assert.equal(stars(94).length,94);assert.deepEqual(stars(),stars());assert.ok(stars().every(x=>x.x>=0&&x.x<1200&&x.y>=0&&x.y<690&&x.opacity<=1));
+const source=fs.readFileSync('game105.js','utf8'),html=fs.readFileSync('index.html','utf8');
+assert.ok(html.indexOf('src="./game105.js"')>html.indexOf('src="./ui92.js"'));
+assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(source),'title shell must not persist or send data');
+assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(source),'title shell must not write game state');
+console.log('PASS title routes, deterministic art, script load order and presentation-only safety');
