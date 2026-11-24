@@ -1,7 +1,7 @@
 name: Star Expedition tests
 on:
   push:
-    branches: [v9-star-expedition, main]
+    branches: [v9-star-expedition, v92-ui-reorganization, main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -16,6 +16,8 @@ jobs:
         with:
           node-version: '22'
       - run: node --check expedition90.js
+      - run: node --check ui92.js
+      - run: node tests/ui92.test.cjs
       - run: node tests/expedition90.test.cjs
       - run: node tests/diagnostics-release.test.cjs
 
