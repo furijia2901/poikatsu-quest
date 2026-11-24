@@ -18,6 +18,31 @@ const server=http.createServer((req,res)=>{
    const page=await context.newPage(),errors=[];
    page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
    await page.goto(url);await page.locator('nav[data-ui92="1"]').waitFor();
+   const title=page.locator('#pq105-title');
+   await title.waitFor({state:'visible'});
+   assert.equal(await title.locator('.pq105-logo').innerText(),'POIKATSU\nQUEST');
+   assert.match(await title.innerText(),/Ver\.10\.5/);
+   assert.equal(await title.locator('svg').count(),1);
+   assert.equal(await title.locator('.pq105-star').first().evaluate(e=>getComputedStyle(e).animationName),'none');
+   const titleBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   for(const id of ['news','updates']){
+    await title.locator('[data-pq105-title-link="'+id+'"]').click();
+    assert.match(await title.locator('.pq105-detail').innerText(),/STAR EXPLORER/);
+    await title.getByRole('button',{name:'タイトルへ戻る',exact:true}).click();
+   }
+   for(const id of ['account','settings']){
+    await title.locator('[data-pq105-title-link="'+id+'"]').click();
+    await title.waitFor({state:'hidden'});
+    await page.locator('#settings92.active').waitFor();
+    assert.equal(await page.locator('#cloud-email').isVisible(),true);
+    await page.locator('#pq105-return').click();
+    await title.waitFor({state:'visible'});
+   }
+   await title.locator('#pq105-start').click();
+   await title.waitFor({state:'hidden'});
+   await page.locator('#home.active').waitFor();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),titleBefore,'title navigation must not alter game or storage');
+   console.log('PASS title screen, news, account, settings and return '+viewport.width+'px');
    const {GROUPS}=require('../ui92.js');
    async function gotoTab(id){
     if(id==='home'){
@@ -201,7 +226,7 @@ const server=http.createServer((req,res)=>{
 
    await panel.getByRole('button',{name:'戦闘を中断',exact:true}).click();
    assert.equal(await panel.locator('#pq9-battle').isVisible(),false);
-   await page.reload();await page.locator('nav[data-ui92="1"]').waitFor();await seed();
+   await page.reload();await page.locator('nav[data-ui92="1"]').waitFor();await page.locator('#pq105-start').click();await page.locator('#pq105-title').waitFor({state:'hidden'});await page.locator('#home.active').waitFor();await seed();
    await gotoTab('expedition90');
    await panel.locator('[data-pq9-view="rewards"]').click();
    assert.equal(await panel.locator('#pq10-chests').innerText(),chestText,'fixed chest collection survives reload');
