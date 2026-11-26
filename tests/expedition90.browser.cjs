@@ -343,6 +343,39 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),centerBefore);
    console.log('PASS integrated test center fixture launch, result tracking, reset and data isolation '+viewport.width+'px');
 
+   const townBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await gotoTab('town');
+   const town=page.locator('#pq11-town'),townTest=page.locator('#pq11-town-test');
+   await town.waitFor({state:'visible'});
+   assert.equal(await town.locator('.pq11-cell').count(),25);
+   assert.equal(await town.locator('[data-pq11-facility]').count(),7);
+   await town.locator('[data-pq11-facility="tower"]').click();
+   assert.match(await town.locator('.pq11-detail').innerText(),/星見の塔/);
+   await town.getByRole('button',{name:'既存の建設画面へ'}).click();
+   await page.locator('#v50buildings').waitFor({state:'visible'});
+   await gotoTab('town');
+   await town.locator('[data-pq11-facility="inn"]').click();
+   assert.match(await town.locator('.pq11-detail').innerText(),/宿屋/);
+   await town.getByRole('button',{name:'既存の建設画面へ'}).click();
+   await page.locator('#buildings').waitFor({state:'visible'});
+   await town.getByRole('button',{name:'🧪 街づくり試験',exact:true}).click();
+   await townTest.waitFor({state:'visible'});
+   assert.match(await townTest.innerText(),/小さな村/);
+   assert.equal(await townTest.locator('[data-built="true"]').count(),6);
+   await townTest.getByRole('button',{name:'未建設・資金不足',exact:true}).click();
+   assert.match(await townTest.innerText(),/開拓地/);
+   assert.equal(await townTest.locator('[data-built="true"]').count(),0);
+   await townTest.getByRole('button',{name:'最大レベル',exact:true}).click();
+   assert.match(await townTest.innerText(),/星界首都/);
+   assert.equal(await townTest.locator('[data-built="true"]').count(),7);
+   assert.match(await townTest.locator('.pq11-detail').innerText(),/最大レベルに到達/);
+   await townTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.ok(await town.locator('.pq11-map').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'city map overflow');
+   await gotoTab('home');
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),townBefore);
+   console.log('PASS city map, seven legacy facilities, detail routing, empty/max fixtures and isolation '+viewport.width+'px');
+
+
 
 
 
