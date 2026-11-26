@@ -431,6 +431,35 @@ const server=http.createServer((req,res)=>{
    await gotoTab('home');
    console.log('PASS resident recruitment, job assignment, capacity, fixtures and save isolation '+viewport.width+'px');
 
+   await gotoTab('town');
+   const production=page.locator('#pq11-production'),productionTest=page.locator('#pq11-production-test');
+   const productionBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await production.getByRole('button',{name:'🧪 資源生産試験',exact:true}).click();
+   const resource=(id)=>productionTest.locator('[data-pq11-resource="'+id+'"]');
+   assert.match(await resource('food').innerText(),/未回収 \+7/);
+   await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).click();
+   assert.match(await resource('food').innerText(),/7 \/ 225/);
+   assert.equal(await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).isDisabled(),true);
+   await productionTest.getByRole('button',{name:'加工品を1個作る',exact:true}).click();
+   assert.match(await resource('goods').innerText(),/1 \/ 225/);
+   assert.match(await resource('wood').innerText(),/2 \/ 225/);
+   await productionTest.getByRole('button',{name:'時間を1時間進める',exact:true}).click();
+   assert.equal(await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).isEnabled(),true);
+   await productionTest.getByRole('button',{name:'24時間経過',exact:true}).click();
+   assert.match(await productionTest.innerText(),/720分 \/ 720分/);
+   assert.match(await resource('food').innerText(),/未回収 \+87/);
+   await productionTest.getByRole('button',{name:'倉庫満杯',exact:true}).click();
+   assert.equal(await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).isDisabled(),true);
+   await productionTest.getByRole('button',{name:'住民待機',exact:true}).click();
+   assert.equal(await productionTest.getByRole('button',{name:'加工品を1個作る',exact:true}).isDisabled(),true);
+   await productionTest.getByRole('button',{name:'試験初期化',exact:true}).click();
+   assert.match(await resource('food').innerText(),/未回収 \+7/);
+   await productionTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),productionBefore);
+   await gotoTab('home');
+   console.log('PASS resource accrual, crafting, offline cap, warehouse limits, reset and save isolation '+viewport.width+'px');
+
+
 
 
 
