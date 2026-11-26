@@ -39,8 +39,8 @@
   const dialog=el('dialog');dialog.id='pq11-town-test';dialog.setAttribute('aria-label','街づくり試験');document.body.append(dialog);
   let selected='forge',testSelected='forge',scenario='basic';
   function navigate(f){
-   if(f.source==='town'){old?.scrollIntoView({block:'start'});old?.querySelector('button')?.focus({preventScroll:true});}
-   else{nav.querySelector('button[data-tab="grand50"]')?.click();document.querySelector('#grand50 [data-pq92-screen-choice="2"]')?.click();grand?.scrollIntoView({block:'start'});grand?.querySelector('button')?.focus({preventScroll:true});}
+   if(f.source==='town'){old?.scrollIntoView({block:'start'});old?.querySelectorAll('button')[FACILITIES.filter(x=>x.source==='town').findIndex(x=>x.id===f.id)]?.focus({preventScroll:true});}
+   else{nav.querySelector('button[data-tab="grand50"]')?.click();document.querySelector('#grand50 [data-pq92-screen-choice="2"]')?.click();grand?.scrollIntoView({block:'start'});grand?.querySelectorAll('button')[FACILITIES.filter(x=>x.source==='grand').findIndex(x=>x.id===f.id)]?.focus({preventScroll:true});}
   }
   function paint(target,model,isTest=false){
    target.replaceChildren(el('p',isTest?'TEST MODE · TOWN REVOLUTION':'TOWN REVOLUTION · CITY MAP','pq11-eyebrow'),el('h2',isTest?'🧪 街づくり試験':'🏰 星あかりの街'));
@@ -68,7 +68,7 @@
    else{button(actions,'🧪 街づくり試験',()=>{scenario='basic';testSelected='forge';paint(dialog,deriveTown(fixture(scenario)),true);dialog.showModal();});target.append(el('p','既存の鍛冶屋・商店・宿屋と星巡り施設を同じ街に表示。施設の効果・建設費・セーブはそのままです。','pq11-note'));}
   }
   function refresh(){if(panel.classList.contains('active'))paint(root,deriveTown(typeof s==='object'?s:{}));}
-  const observer=new MutationObserver(refresh);observer.observe(panel,{attributes:true,attributeFilter:['class']});for(const n of [old,grand])if(n)observer.observe(n,{childList:true,subtree:true});
+  let wasActive=panel.classList.contains('active');const activation=new MutationObserver(()=>{const active=panel.classList.contains('active');if(active&&!wasActive)refresh();wasActive=active;});activation.observe(panel,{attributes:true,attributeFilter:['class']});const observer=new MutationObserver(refresh);for(const n of [old,grand])if(n)observer.observe(n,{childList:true,subtree:true});
   paint(root,deriveTown(typeof s==='object'?s:{}));
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
