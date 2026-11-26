@@ -375,6 +375,37 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),townBefore);
    console.log('PASS city map, seven legacy facilities, detail routing, empty/max fixtures and isolation '+viewport.width+'px');
 
+   await gotoTab('town');
+   const district=page.locator('#pq11-district'),districtTest=page.locator('#pq11-district-test');
+   const districtBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   assert.equal(await district.locator('[data-pq11-plot]').count(),21);
+   await district.getByRole('button',{name:'🧪 新区画建設試験',exact:true}).click();
+   const plots=require('../district110.js').PLOTS;
+   const plot=(p)=>districtTest.locator('[data-pq11-plot="'+p+'"]');
+   await plot(plots[2]).click();
+   await districtTest.getByLabel('建設施設').selectOption('warehouse');
+   await districtTest.getByRole('button',{name:'建設 240G',exact:true}).click();
+   assert.match(await districtTest.innerText(),/所持 4760G/);
+   await districtTest.getByRole('button',{name:'強化 480G',exact:true}).click();
+   assert.match(await districtTest.innerText(),/所持 4280G/);
+   await districtTest.getByRole('button',{name:'移動先を選択',exact:true}).click();
+   await plot(plots[0]).click();
+   assert.equal(await districtTest.getByRole('button',{name:'ここへ移動（無料）',exact:true}).isDisabled(),true);
+   await plot(plots[3]).click();
+   await districtTest.getByRole('button',{name:'ここへ移動（無料）',exact:true}).click();
+   assert.equal(await plot(plots[2]).getAttribute('data-built'),'false');
+   assert.match(await plot(plots[3]).getAttribute('aria-label'),/倉庫 Lv.2/);
+   assert.match(await districtTest.innerText(),/所持 4280G/);
+   await districtTest.getByRole('button',{name:'資金不足',exact:true}).click();
+   assert.equal(await districtTest.getByRole('button',{name:'建設 120G',exact:true}).isDisabled(),true);
+   await districtTest.getByRole('button',{name:'全施設最大',exact:true}).click();
+   assert.equal(await districtTest.getByRole('button',{name:'最大レベル',exact:true}).isDisabled(),true);
+   await districtTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),districtBefore);
+   await gotoTab('home');
+   console.log('PASS district construction, upgrade, free move, occupied/poor/max, fixture isolation '+viewport.width+'px');
+
+
 
 
 
