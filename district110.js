@@ -56,9 +56,11 @@
   window.addEventListener('storage',e=>{if(e.key===KEY||e.key===null){message='別タブでセーブが更新された場合は再読み込みしてください。';refresh();}});
   async function commit(action){
    if(pending)return;pending=true;
+   const expected=JSON.stringify(s),account=typeof cloud==='object'?cloud.session?.user?.id:null;
    try{
     if(!navigator.locks?.request)throw Error('安全な建設操作に対応したブラウザが必要です。');
     await navigator.locks.request('pq11-district-save',()=>{
+     if(JSON.stringify(s)!==expected||(typeof cloud==='object'?cloud.session?.user?.id:null)!==account)throw Error('操作中にセーブまたはアカウントが変更されました。再確認してください。');
      if(localStorage.getItem(KEY)!==baseline)throw Error('別タブの更新を検出。再読み込みしてください。');
      if(typeof cloud==='object'&&cloud.session&&(!cloud.enabled||cloud.conflict||cloud.busy||cloud.checking))throw Error('クラウド同期が安定してから建設してください。');
      const next=transact(s.town110,s.gold,action);if(!next.ok){message=MESSAGES[next.reason];return;}
