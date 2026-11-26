@@ -343,6 +343,126 @@ const server=http.createServer((req,res)=>{
    assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),centerBefore);
    console.log('PASS integrated test center fixture launch, result tracking, reset and data isolation '+viewport.width+'px');
 
+   const townBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await gotoTab('town');
+   const town=page.locator('#pq11-town'),townTest=page.locator('#pq11-town-test');
+   await town.waitFor({state:'visible'});
+   assert.equal(await town.locator('.pq11-cell').count(),25);
+   assert.equal(await town.locator('[data-pq11-facility]').count(),7);
+   await town.locator('[data-pq11-facility="tower"]').click();
+   assert.match(await town.locator('.pq11-detail').innerText(),/星見の塔/);
+   await town.getByRole('button',{name:'既存の建設画面へ'}).click();
+   await page.locator('#v50buildings').waitFor({state:'visible'});
+   await gotoTab('town');
+   await town.locator('[data-pq11-facility="inn"]').click();
+   assert.match(await town.locator('.pq11-detail').innerText(),/宿屋/);
+   await town.getByRole('button',{name:'既存の建設画面へ'}).click();
+   await page.locator('#buildings').waitFor({state:'visible'});
+   await town.getByRole('button',{name:'🧪 街づくり試験',exact:true}).click();
+   await townTest.waitFor({state:'visible'});
+   assert.match(await townTest.innerText(),/小さな村/);
+   assert.equal(await townTest.locator('[data-built="true"]').count(),6);
+   await townTest.getByRole('button',{name:'未建設・資金不足',exact:true}).click();
+   assert.match(await townTest.innerText(),/開拓地/);
+   assert.equal(await townTest.locator('[data-built="true"]').count(),0);
+   await townTest.getByRole('button',{name:'最大レベル',exact:true}).click();
+   assert.match(await townTest.innerText(),/星界首都/);
+   assert.equal(await townTest.locator('[data-built="true"]').count(),7);
+   assert.match(await townTest.locator('.pq11-detail').innerText(),/最大レベルに到達/);
+   await townTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.ok(await town.locator('.pq11-map').evaluate(e=>e.scrollWidth<=e.clientWidth+2),'city map overflow');
+   await gotoTab('home');
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),townBefore);
+   console.log('PASS city map, seven legacy facilities, detail routing, empty/max fixtures and isolation '+viewport.width+'px');
+
+   await gotoTab('town');
+   const district=page.locator('#pq11-district'),districtTest=page.locator('#pq11-district-test');
+   const districtBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   assert.equal(await district.locator('[data-pq11-plot]').count(),21);
+   await district.getByRole('button',{name:'🧪 新区画建設試験',exact:true}).click();
+   const plots=require('../district110.js').PLOTS;
+   const plot=(p)=>districtTest.locator('[data-pq11-plot="'+p+'"]');
+   await plot(plots[2]).click();
+   await districtTest.getByLabel('建設施設').selectOption('warehouse');
+   await districtTest.getByRole('button',{name:'建設 240G',exact:true}).click();
+   assert.match(await districtTest.innerText(),/所持 4760G/);
+   await districtTest.getByRole('button',{name:'強化 480G',exact:true}).click();
+   assert.match(await districtTest.innerText(),/所持 4280G/);
+   await districtTest.getByRole('button',{name:'移動先を選択',exact:true}).click();
+   await plot(plots[0]).click();
+   assert.equal(await districtTest.getByRole('button',{name:'ここへ移動（無料）',exact:true}).isDisabled(),true);
+   await plot(plots[3]).click();
+   await districtTest.getByRole('button',{name:'ここへ移動（無料）',exact:true}).click();
+   assert.equal(await plot(plots[2]).getAttribute('data-built'),'false');
+   assert.match(await plot(plots[3]).getAttribute('aria-label'),/倉庫 Lv.2/);
+   assert.match(await districtTest.innerText(),/所持 4280G/);
+   await districtTest.getByRole('button',{name:'資金不足',exact:true}).click();
+   assert.equal(await districtTest.getByRole('button',{name:'建設 120G',exact:true}).isDisabled(),true);
+   await districtTest.getByRole('button',{name:'全施設最大',exact:true}).click();
+   assert.equal(await districtTest.getByRole('button',{name:'最大レベル',exact:true}).isDisabled(),true);
+   await districtTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),districtBefore);
+   await gotoTab('home');
+   console.log('PASS district construction, upgrade, free move, occupied/poor/max, fixture isolation '+viewport.width+'px');
+
+   await gotoTab('town');
+   const resident=page.locator('#pq11-residents'),residentTest=page.locator('#pq11-residents-test');
+   const residentBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await resident.getByRole('button',{name:'🧪 住民試験',exact:true}).click();
+   assert.match(await residentTest.innerText(),/2 \/ 4/);
+   await residentTest.getByRole('button',{name:'住民を迎える（50G）',exact:true}).click();
+   assert.match(await residentTest.innerText(),/3 \/ 4/);
+   assert.match(await residentTest.innerText(),/450G/);
+   await residentTest.locator('[data-pq11-resident="2"] select').selectOption('farmer');
+   assert.match(await residentTest.innerText(),/農家 2\/2/);
+   assert.equal(await residentTest.locator('[data-pq11-resident="3"] option[value="farmer"]').isDisabled(),true);
+   await residentTest.locator('[data-pq11-resident="1"] select').selectOption('idle');
+   assert.equal(await residentTest.locator('[data-pq11-resident="3"] option[value="farmer"]').isDisabled(),false);
+   await residentTest.getByRole('button',{name:'住宅・職場満員',exact:true}).click();
+   assert.equal(await residentTest.getByRole('button',{name:'住民を迎える（50G）',exact:true}).isDisabled(),true);
+   await residentTest.getByRole('button',{name:'住宅なし',exact:true}).click();
+   assert.match(await residentTest.innerText(),/0 \/ 0/);
+   await residentTest.getByRole('button',{name:'資金不足',exact:true}).click();
+   assert.equal(await residentTest.getByRole('button',{name:'住民を迎える（50G）',exact:true}).isDisabled(),true);
+   await residentTest.getByRole('button',{name:'試験初期化',exact:true}).click();
+   assert.match(await residentTest.innerText(),/2 \/ 4/);
+   await residentTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),residentBefore);
+   await gotoTab('home');
+   console.log('PASS resident recruitment, job assignment, capacity, fixtures and save isolation '+viewport.width+'px');
+
+   await gotoTab('town');
+   const production=page.locator('#pq11-production'),productionTest=page.locator('#pq11-production-test');
+   const productionBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await production.getByRole('button',{name:'🧪 資源生産試験',exact:true}).click();
+   const resource=(id)=>productionTest.locator('[data-pq11-resource="'+id+'"]');
+   assert.match(await resource('food').innerText(),/未回収 \+7/);
+   await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).click();
+   assert.match(await resource('food').innerText(),/7 \/ 225/);
+   assert.equal(await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).isDisabled(),true);
+   await productionTest.getByRole('button',{name:'加工品を1個作る',exact:true}).click();
+   assert.match(await resource('goods').innerText(),/1 \/ 225/);
+   assert.match(await resource('wood').innerText(),/2 \/ 225/);
+   await productionTest.getByRole('button',{name:'時間を1時間進める',exact:true}).click();
+   assert.equal(await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).isEnabled(),true);
+   await productionTest.getByRole('button',{name:'24時間経過',exact:true}).click();
+   assert.match(await productionTest.innerText(),/720分 \/ 720分/);
+   assert.match(await resource('food').innerText(),/未回収 \+87/);
+   await productionTest.getByRole('button',{name:'倉庫満杯',exact:true}).click();
+   assert.equal(await productionTest.getByRole('button',{name:'生産分を回収',exact:true}).isDisabled(),true);
+   await productionTest.getByRole('button',{name:'住民待機',exact:true}).click();
+   assert.equal(await productionTest.getByRole('button',{name:'加工品を1個作る',exact:true}).isDisabled(),true);
+   await productionTest.getByRole('button',{name:'試験初期化',exact:true}).click();
+   assert.match(await resource('food').innerText(),/未回収 \+7/);
+   await productionTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),productionBefore);
+   await gotoTab('home');
+   console.log('PASS resource accrual, crafting, offline cap, warehouse limits, reset and save isolation '+viewport.width+'px');
+
+
+
+
+
 
 
 

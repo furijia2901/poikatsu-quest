@@ -1,7 +1,7 @@
 name: Star Expedition tests
 on:
   push:
-    branches: [v9-star-expedition, v92-ui-reorganization, v10-star-explorer, v105-game-experience, main]
+    branches: [v9-star-expedition, v92-ui-reorganization, v10-star-explorer, v105-game-experience, v11-town-revolution, main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -18,6 +18,14 @@ jobs:
       - run: node --check expedition90.js
       - run: node --check ui92.js
       - run: node --check game105.js
+      - run: node --check town110.js
+      - run: node --check district110.js
+      - run: node --check residents110.js
+      - run: node --check production110.js
+      - run: node tests/production110.test.cjs
+      - run: node tests/residents110.test.cjs
+      - run: node tests/district110.test.cjs
+      - run: node tests/town110.test.cjs
       - run: node --check profile105.js
       - run: node --check collection105.js
       - run: node --check inbox105.js
