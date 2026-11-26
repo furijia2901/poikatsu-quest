@@ -405,6 +405,33 @@ const server=http.createServer((req,res)=>{
    await gotoTab('home');
    console.log('PASS district construction, upgrade, free move, occupied/poor/max, fixture isolation '+viewport.width+'px');
 
+   await gotoTab('town');
+   const resident=page.locator('#pq11-residents'),residentTest=page.locator('#pq11-residents-test');
+   const residentBefore=await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()}));
+   await resident.getByRole('button',{name:'🧪 住民試験',exact:true}).click();
+   assert.match(await residentTest.innerText(),/2 \/ 4/);
+   await residentTest.getByRole('button',{name:'住民を迎える（50G）',exact:true}).click();
+   assert.match(await residentTest.innerText(),/3 \/ 4/);
+   assert.match(await residentTest.innerText(),/450G/);
+   await residentTest.locator('[data-pq11-resident="2"] select').selectOption('farmer');
+   assert.match(await residentTest.innerText(),/農家 2\/2/);
+   assert.equal(await residentTest.locator('[data-pq11-resident="3"] option[value="farmer"]').isDisabled(),true);
+   await residentTest.locator('[data-pq11-resident="1"] select').selectOption('idle');
+   assert.equal(await residentTest.locator('[data-pq11-resident="3"] option[value="farmer"]').isDisabled(),false);
+   await residentTest.getByRole('button',{name:'住宅・職場満員',exact:true}).click();
+   assert.equal(await residentTest.getByRole('button',{name:'住民を迎える（50G）',exact:true}).isDisabled(),true);
+   await residentTest.getByRole('button',{name:'住宅なし',exact:true}).click();
+   assert.match(await residentTest.innerText(),/0 \/ 0/);
+   await residentTest.getByRole('button',{name:'資金不足',exact:true}).click();
+   assert.equal(await residentTest.getByRole('button',{name:'住民を迎える（50G）',exact:true}).isDisabled(),true);
+   await residentTest.getByRole('button',{name:'試験初期化',exact:true}).click();
+   assert.match(await residentTest.innerText(),/2 \/ 4/);
+   await residentTest.getByRole('button',{name:'試験終了',exact:true}).click();
+   assert.deepEqual(await page.evaluate(()=>({state:JSON.stringify(s),storage:Object.entries(localStorage).sort()})),residentBefore);
+   await gotoTab('home');
+   console.log('PASS resident recruitment, job assignment, capacity, fixtures and save isolation '+viewport.width+'px');
+
+
 
 
 
