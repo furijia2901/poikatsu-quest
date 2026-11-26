@@ -50,30 +50,31 @@
   try{baseline=localStorage.getItem(KEY);}catch{baseline=null;}
   // Only acknowledge a snapshot after this page has written its current state.
   const previousRender=render;
-  render=function(){try{const raw=localStorage.getItem(KEY);if(raw===JSON.stringify(s))baseline=raw;}catch{}const result=previousRender.apply(this,arguments);if(panel.classList.contains('active'))paint(root,false);return result;};
-  const refresh=()=>{if(panel.classList.contains('active'))paint(root,false);};
+  render=function(){try{const raw=localStorage.getItem(KEY);if(raw===JSON.stringify(s))baseline=raw;}catch{}const result=previousRender.apply(this,arguments);if(panel.classList.contains('active')){paint(root,false);window.PQ110Residents?.refresh?.();}return result;};
+  const refresh=()=>{if(panel.classList.contains('active')){paint(root,false);window.PQ110Residents?.refresh?.();}};
   let active=false;new MutationObserver(()=>{const next=panel.classList.contains('active');if(next&&!active)refresh();active=next;}).observe(panel,{attributes:true,attributeFilter:['class']});
   window.addEventListener('storage',e=>{if(e.key===KEY||e.key===null){message='別タブでセーブが更新された場合は再読み込みしてください。';refresh();}});
   async function commit(action){
-   if(pending)return;pending=true;
+   if(pending)return {ok:false,message:'別の都市操作を処理中です。'};pending=true;
    const expected=JSON.stringify(s),account=typeof cloud==='object'?cloud.session?.user?.id:null;
    try{
     if(!navigator.locks?.request)throw Error('安全な建設操作に対応したブラウザが必要です。');
-    await navigator.locks.request('pq11-district-save',()=>{
+    return await navigator.locks.request('pq11-district-save',()=>{
      if(JSON.stringify(s)!==expected||(typeof cloud==='object'?cloud.session?.user?.id:null)!==account)throw Error('操作中にセーブまたはアカウントが変更されました。再確認してください。');
      if(localStorage.getItem(KEY)!==baseline)throw Error('別タブの更新を検出。再読み込みしてください。');
      if(typeof cloud==='object'&&cloud.session&&(!cloud.enabled||cloud.conflict||cloud.busy||cloud.checking))throw Error('クラウド同期が安定してから建設してください。');
-     const next=transact(s.town110,s.gold,action);if(!next.ok){message=MESSAGES[next.reason];return;}
+     const current=validate(s.town110);if(!current||!window.PQ110Residents?.derive(current))return {ok:false,reason:'invalid'};
+     const residentAction=action.kind.startsWith('resident-');const next=residentAction?window.PQ110Residents.transact(current,s.gold,action):transact(current,s.gold,action);if(!next.ok){message=MESSAGES[next.reason]||window.PQ110Residents.messages[next.reason];return next;}
      const oldGold=s.gold,oldDistrict=s.town110,had=Object.hasOwn(s,'town110');
      s.gold=next.gold;s.town110=next.district;
      try{save();}catch(e){
       let persisted=false;try{const data=JSON.parse(localStorage.getItem(KEY));persisted=data.gold===next.gold&&JSON.stringify(data.town110)===JSON.stringify(next.district);}catch{}
       if(!persisted){s.gold=oldGold;if(had)s.town110=oldDistrict;else delete s.town110;throw Error('保存に失敗しました。建設を中止しました。');}
      }
-     message=action.kind==='move'?'施設を移動しました。':'建設・強化完了：'+next.cost+'G消費';
-     if(action.kind==='move'){selection=action.to;moving=null;}
+     if(!residentAction)message=action.kind==='move'?'施設を移動しました。':'建設・強化完了：'+next.cost+'G消費';
+     if(action.kind==='move'){selection=action.to;moving=null;}return next;
     });
-   }catch(e){message=e.message||'操作を中止しました。';}finally{pending=false;refresh();}
+   }catch(e){message=e.message||'操作を中止しました。';return {ok:false,message};}finally{pending=false;refresh();}
   }
   function action(a,test){
    if(!test){commit(a);return;}
@@ -84,7 +85,7 @@
   }
   function paint(target,test){
    const raw=test?sample.district:s.town110,gold=test?sample.gold:s.gold,d=validate(raw);
-   target.replaceChildren(el('h2',test?'🧪 新区画建設試験':'🏘️ 新市街区'),el('p',test?'仮想ゴールド・仮データのみ使用します。':'新施設を建設・強化・移動できる区画です。旧市街の7施設には影響しません。生産・住民効果は今後追加予定。'));
+   target.replaceChildren(el('h2',test?'🧪 新区画建設試験':'🏘️ 新市街区'),el('p',test?'仮想ゴールド・仮データのみ使用します。':'新施設を建設・強化・移動できる区画です。旧市街の7施設には影響しません。住宅と職場は住民システムに連動します。資源生産は次のフェーズで追加予定。'));
    if(!d){target.append(el('p',MESSAGES.invalid));if(test)btn(target,'試験終了',()=>dialog.close());return;}
    const selected=test?testSelection:selection,move=test?testMoving:moving;
    target.append(el('p','所持 '+gold+'G　｜　新区画 '+d.buildings.length+'/'+PLOTS.length+'　｜　総Lv '+d.buildings.reduce((n,b)=>n+b.level,0)));
@@ -106,7 +107,8 @@
    if(test){for(const [id,label] of [['basic','試験初期化'],['poor','資金不足'],['max','全施設最大']])btn(footer,label,()=>{sample=fixture(id);testSelection=PLOTS[0];testMoving=null;testChosen='house';testMessage='';paint(dialog,true);});btn(footer,'試験終了',()=>dialog.close());}
    else btn(footer,'🧪 新区画建設試験',()=>{sample=fixture();testSelection=PLOTS[0];testMoving=null;testChosen='house';testMessage='';paint(dialog,true);dialog.showModal();});
   }
-  paint(root,false);
+  window.PQ110District.commit=commit;paint(root,false);
  }
+ window.PQ110District={validate,transact,fixture,commit:null};
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })();
