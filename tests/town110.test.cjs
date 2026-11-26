@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {FACILITIES,TERRAIN,RANKS,deriveTown,fixture}=require('../town110.js');
+assert.equal(FACILITIES.length,7);assert.equal(TERRAIN.length,25);assert.equal(new Set(FACILITIES.map(x=>x.cell)).size,7);assert.ok(FACILITIES.every(x=>TERRAIN[x.cell]==='plot'));
+const basic=fixture(),before=JSON.stringify(basic),d=deriveTown(basic);
+assert.equal(d.total,10);assert.equal(d.built,6);assert.equal(d.rank,'小さな村');assert.equal(d.nextLevel,15);
+assert.equal(d.items.find(x=>x.id==='forge').nextCost,240);
+assert.equal(d.items.find(x=>x.id==='shop').nextCost,450);
+assert.equal(JSON.stringify(basic),before);
+const empty=deriveTown(fixture('empty'));assert.equal(empty.total,0);assert.equal(empty.rank,'開拓地');assert.equal(empty.gold,0);
+const max=deriveTown(fixture('max'));assert.equal(max.total,55);assert.equal(max.rank,'星界首都');assert.ok(max.items.every(x=>x.nextCost===null));
+assert.equal(deriveTown({town:{forge:999,market:-5,inn:'4'}}).total,5);assert.equal(deriveTown(null).built,0);
+const code=fs.readFileSync('town110.js','utf8');assert.ok(!/\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|cloudRequest|cloudEnsureToken|cloudRemote|save)\s*(?:\.|\()/g.test(code));
+assert.ok(!/\b(?:s|cloud)\s*\.[A-Za-z_$][\w$]*\s*=(?!=)/g.test(code));
+console.log('PASS city legacy projection, all seven facility costs, rank boundaries, max and empty fixtures, read-only safety');
