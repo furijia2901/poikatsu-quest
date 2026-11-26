@@ -63,7 +63,7 @@
   let sample=fixture(),message='',testMessage='',busy=false;
   function paint(target,test){
    const d=test?sample.district:window.PQ110District.validate(s.town110),gold=test?sample.gold:s.gold,m=derive(d);
-   target.replaceChildren(el('h2',test?'🧪 住民試験':'👥 住民と職業'),el('p',test?'試験用住民・ゴールドのみ。':'住宅1Lvにつき4人。職場1Lvにつき2人を配置できます。住民の特性は表示用、生産への反映は次のフェーズです。'));
+   target.replaceChildren(el('h2',test?'🧪 住民試験':'👥 住民と職業'),el('p',test?'試験用住民・ゴールドのみ。':'住宅1Lvにつき4人。職場1Lvにつき2人を配置できます。勤勉・集中力の特性は採集効率に反映されます。'));
    if(!m){target.append(el('p',MSG.invalid));if(test)btn(target,'試験終了',()=>dialog.close());return;}
    const stats=el('div','','pq11-resident-stats');for(const [label,value] of [['人口',m.population+' / '+m.capacity],['就業中',m.employed+' 人'],['幸福度',m.happiness+'%'],['生産効率の目安',m.efficiency+'%']]){const tile=el('div','','pq11-resident-stat');tile.append(el('small',label),el('strong',value));stats.append(tile);}target.append(stats);
    const bar=el('progress');bar.max=100;bar.value=m.happiness;bar.setAttribute('aria-label','幸福度');target.append(bar,el('p','所持 '+gold+'G ｜ 公園・市庁舎・就業率で幸福度アップ'));
@@ -84,6 +84,6 @@
   }
   window.PQ110Residents.refresh=()=>paint(root,false);paint(root,false);
  }
- window.PQ110Residents={derive,transact,messages:MSG,refresh:null};
+ window.PQ110Residents={derive,identity,transact,messages:MSG,refresh:null};
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })();
