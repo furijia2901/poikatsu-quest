@@ -20,6 +20,8 @@ jobs:
       - run: node --check game105.js
       - run: node --check town110.js
       - run: node --check district110.js
+      - run: node --check residents110.js
+      - run: node tests/residents110.test.cjs
       - run: node tests/district110.test.cjs
       - run: node tests/town110.test.cjs
       - run: node --check profile105.js
