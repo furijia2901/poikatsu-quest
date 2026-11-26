@@ -21,6 +21,8 @@ jobs:
       - run: node --check town110.js
       - run: node --check district110.js
       - run: node --check residents110.js
+      - run: node --check production110.js
+      - run: node tests/production110.test.cjs
       - run: node tests/residents110.test.cjs
       - run: node tests/district110.test.cjs
       - run: node tests/town110.test.cjs
